@@ -19,6 +19,7 @@
 
 import { STORE, filesOf, rowsOf, within } from "~/core/lib/idb"
 import type { Attachment } from "./store"
+import type { LocalFolder } from "./local"
 
 /** Where a book is kept away from this device. */
 export interface Remote {
@@ -40,6 +41,7 @@ export interface BookCard {
   /** Entry files selected together, kept outside the journal files. */
   readonly selectedEntries?: readonly string[]
   readonly remote?: Remote
+  readonly local?: LocalFolder
   readonly openedAt: number
 }
 

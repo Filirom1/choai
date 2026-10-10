@@ -14,6 +14,7 @@ import { atTheJournal } from "~/core/hledger/turn"
 import { demoJournal } from "./demo"
 import { MAIN, TRANSACTIONS, includedBy, including, laidOut } from "./layout"
 import { retitled, titleOf } from "./title"
+import { changedPaths, permitLocalFolder, saveLocalFolder, type LocalFolder, type LocalFailure } from "./local"
 import {
   allBooks,
   bookWithFiles,
@@ -60,6 +61,7 @@ export interface OpenJournal {
   readonly source: Source
   /** Where this book is kept away from here, if it is kept anywhere. */
   readonly remote?: Remote
+  readonly local?: LocalFolder
   readonly summary: JournalSummary
 }
 
@@ -124,7 +126,7 @@ export const openBook = async (id: string): Promise<Result<OpenJournal, Trouble>
   }
   const read = await attempt(source)
   return read.ok
-    ? remember({ bookId: kept.id, source, remote: kept.remote, summary: read.value })
+    ? remember({ bookId: kept.id, source, remote: kept.remote, local: kept.local, summary: read.value })
     : forget(read.error)
 }
 
@@ -204,6 +206,7 @@ const keep = async (open: OpenJournal): Promise<void> => {
       entry: open.source.entry,
       selectedEntries: open.source.selectedEntries,
       remote: open.remote,
+      local: open.local,
       openedAt: Date.now(),
       files: open.source.files,
       attachments: open.source.attachments,
@@ -656,7 +659,7 @@ interface FolderDirectory {
   readonly values: () => AsyncIterableIterator<FolderFile | FolderDirectory>
 }
 
-type FolderPicker = () => Promise<FolderDirectory>
+type FolderPicker = () => Promise<FileSystemDirectoryHandle & FolderDirectory>
 
 const folderPicker = (): FolderPicker | undefined => {
   const picker = (window as { showDirectoryPicker?: FolderPicker }).showDirectoryPicker
@@ -672,7 +675,8 @@ export const openFolder = async (): Promise<Result<OpenJournal, Trouble> | undef
   try {
     const root = await choose()
     const chosen = await filesBelow(root)
-    return openChosenFiles(chosen)
+    const result = await openChosenFiles(chosen)
+    return result.ok ? remember({ ...result.value, local: { handle: root, base: result.value.source.files } }) : result
   } catch (cause) {
     return isCancelled(cause) ? undefined : Err({ kind: "unreachable", detail: String(cause) })
   }
@@ -699,3 +703,55 @@ const isCancelled = (cause: unknown): boolean => cause instanceof DOMException &
 /** The conventional names for the file that includes the others. */
 const looksLikeAnEntry = (name: string): boolean =>
   /(^|\/)(main|all)\.(journal|hledger|ledger)$/i.test(name)
+
+/** Disk operations are explicit and serialized; browser edits remain safe until sent. */
+const localWork = createRoot(() => createGate())
+export const localBusy = localWork.busy
+
+export type LocalTrouble = LocalFailure | { readonly at: "unsaved" } | { readonly at: "hledger"; readonly trouble: Trouble }
+
+/** Write only changed files and keep the baseline after each successful filesystem write. */
+export const saveToLocalFolder = (): Promise<Result<void, LocalTrouble>> => localWork.through(async () => {
+  const open = getOrUndefined(opened())
+  if (open?.local === undefined) return Err({ at: "not-linked" })
+  const result = await saveLocalFolder(open.local, open.source.files, async (local) => {
+    const current = getOrUndefined(opened())
+    const updated = { ...(current?.bookId === open.bookId ? current : open), local }
+    if (current?.bookId === open.bookId) setOpened(Some(updated))
+    await keepOnThisDevice(updated)
+  })
+  return result.ok ? Ok(undefined) : result
+})
+
+/** Replacing pending changes requires the screen to ask explicitly; hledger still validates the disk copy. */
+export const reloadLocalFolder = (how: "clean" | "discard" = "clean"): Promise<Result<void, LocalTrouble>> => localWork.through(async () => {
+  const open = getOrUndefined(opened())
+  if (open?.local === undefined) return Err({ at: "not-linked" })
+  if (how === "clean" && changedPaths(open.local.base, open.source.files).length > 0) return Err({ at: "unsaved" })
+  const permitted = await permitLocalFolder(open.local)
+  if (!permitted.ok) return permitted
+  try {
+    const chosen = await filesBelow(open.local.handle as FileSystemDirectoryHandle & FolderDirectory)
+    const contents = await Promise.all(chosen.filter(([path]) => !isDocumentation(path) && !isGitMetadata(path) && !isAttachment(path))
+      .map(async ([path, file]) => [path, await readText(file)] as const))
+    const files = Object.fromEntries(contents)
+    const attachments = chosen.filter(([path]) => isAttachment(path))
+    const source = { ...open.source, files, attachments: attachments.map(([path, file]) => ({ path, type: file.type, size: file.size })) }
+    return atTheJournal.through(async (): Promise<Result<void, LocalTrouble>> => {
+      if (getOrUndefined(opened()) !== open) return Err({ at: "unsaved" })
+      const read = await openSource(source)
+      if (!read.ok) return Err({ at: "hledger", trouble: read.error })
+      if (getOrUndefined(opened()) !== open) {
+        const current = getOrUndefined(opened())
+        if (current !== undefined) await openSource(current.source)
+        return Err({ at: "unsaved" })
+      }
+      const result = await remember({ ...open, source, summary: read.value, local: { handle: open.local!.handle, base: files } })
+      if (!result.ok) return Err({ at: "hledger", trouble: result.error })
+      await mapLimited(attachments, 2, async ([path, file]) => putAttachments(open.bookId, [{ path, type: file.type, size: file.size, blob: file }]))
+      return Ok(undefined)
+    })
+  } catch (cause) {
+    return Err({ at: "filesystem", cause })
+  }
+})
