@@ -616,8 +616,15 @@ export const switchEntries = async (paths: readonly string[]): Promise<Result<Op
   return remember({ ...current, source, summary: read.value })
 }
 
+/**
+ * Open selected files, optionally treating every entry file as one book.
+ *
+ * File selection can intentionally combine entries. A directory cannot: it may
+ * contain independent books alongside the files included by the selected one.
+ */
 const openChosenFiles = async (
   chosen: readonly (readonly [string, File])[],
+  combineEntries: boolean = true,
 ): Promise<Result<OpenJournal, Trouble>> => {
   const usable = chosen.filter(([path]) => !isDocumentation(path) && !isGitMetadata(path))
   const contents = await Promise.all(
@@ -626,13 +633,18 @@ const openChosenFiles = async (
   const binary = usable.filter(([path]) => isAttachment(path))
   const files = Object.fromEntries(contents)
   const names = contents.map(([name]) => name)
-  const entry = names.find(looksLikeJournalFile)
+  const entries = names.filter(looksLikeJournalFile)
+  const included = new Set(Object.values(files).flatMap(includedBy))
+  const standalone = entries.filter((path) => !included.has(path))
+  const entry = (combineEntries ? entries[0] : standalone[0]) ?? entries[0]
   if (entry === undefined) return Err({ kind: "unsupported-file" })
+  const selected = combineEntries && entries.length > 1 ? entries : undefined
   const opened = await startBook({
-    label: names.length > 1 ? `${entry} (+${names.length - 1} more)` : entry,
+    label: selected === undefined ? entry : `${entry} (+${entries.length - 1} more)`,
     files,
     attachments: binary.map(([path, file]) => ({ path, type: file.type, size: file.size })),
     entry: `/${entry}`,
+    selectedEntries: selected,
   })
   if (opened.ok) {
     await mapLimited(binary, 2, async ([path, file]) => putAttachments(opened.value.bookId, [{ path, type: file.type, size: file.size, blob: file }]))
@@ -676,7 +688,7 @@ export const openFolder = async (): Promise<Result<OpenJournal, Trouble> | undef
   try {
     const root = await choose()
     const chosen = await filesBelow(root)
-    const result = await openChosenFiles(chosen)
+    const result = await openChosenFiles(chosen, false)
     return result.ok ? remember({ ...result.value, local: { handle: root, base: result.value.source.files } }) : result
   } catch (cause) {
     return isCancelled(cause) ? undefined : Err({ kind: "unreachable", detail: String(cause) })
