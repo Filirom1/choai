@@ -7,6 +7,53 @@
 
 @custom-variant dark (&:where(.dark, .dark *, [data-kb-theme=dark], [data-kb-theme=dark] *));
 
+@media print {
+  @page {
+    margin: 1.5cm;
+  }
+
+  html,
+  body,
+  #root,
+  #root > * {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  body * {
+    visibility: hidden;
+    overflow: visible !important;
+  }
+
+  .report-printable,
+  .report-printable * {
+    visibility: visible;
+  }
+
+  .report-printable {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    max-width: none;
+    padding: 0;
+    color: #000;
+    background: #fff;
+  }
+
+  .report-printable .report-print-action {
+    display: none;
+  }
+
+  .report-printable table {
+    border-color: #ccc;
+  }
+
+  .report-printable tr,
+  .report-printable section {
+    break-inside: avoid;
+  }
+}
+
 .report-output {
   color: var(--foreground);
   font-size: 0.875rem;

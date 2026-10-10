@@ -65,6 +65,7 @@ export const ja: Dictionary = {
     nothingMatches: "該当なし",
     range: "{{ total }} 件中 {{ from }}–{{ to }}",
     export: "帳簿を書き出す",
+    print: "印刷",
     newer: "新しい方へ",
     older: "古い方へ",
   },
@@ -123,6 +124,7 @@ export const ja: Dictionary = {
     to: "終了日（この日を含む）",
     filters: "フィルター",
     filtered: "フィルター — 絞り込み中",
+    print: "レポートを印刷",
   },
   propose: {
     title: "書かれた、まだ入れていない仕訳",

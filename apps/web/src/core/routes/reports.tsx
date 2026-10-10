@@ -155,8 +155,11 @@ function Statements(): JSX.Element {
   }
 
   return (
-    <div class="flex flex-col gap-4">
-      <h2 class="text-sm font-medium">{statement().name()}</h2>
+    <div class="report-printable flex flex-col gap-4">
+      <div class="flex items-center justify-between gap-2">
+        <h2 class="text-sm font-medium">{statement().name()}</h2>
+        <PrintButton />
+      </div>
       <Show when={statement()} keyed>
         {(shown) => (
           <shown.Body
@@ -211,9 +214,12 @@ function ReportEditor(props: { readonly report?: SavedReport }): JSX.Element {
           {(saved) => (
             <div class="flex items-center justify-between gap-2">
               <h2 class="text-sm font-medium">{saved().name}</h2>
-              <div class="flex gap-2">
-                <Button size="sm" variant="outline" onClick={() => setEditing(true)}>{t("customReport.edit")}</Button>
-                <Button size="sm" variant="ghost" onClick={remove}>{t("customReport.remove")}</Button>
+              <div class="flex items-center gap-2">
+                <PrintButton />
+                <div class="flex gap-2">
+                  <Button size="sm" variant="outline" onClick={() => setEditing(true)}>{t("customReport.edit")}</Button>
+                  <Button size="sm" variant="ghost" onClick={remove}>{t("customReport.remove")}</Button>
+                </div>
               </div>
             </div>
           )}
@@ -245,8 +251,10 @@ function ReportEditor(props: { readonly report?: SavedReport }): JSX.Element {
             {matchResource(report(), {
               Loading: () => <Waiting />,
               Err: (trouble) => <TroubleNote trouble={trouble} />,
-              Ok: (answer) => <div aria-label={t("customReport.result")} class="report-output"
-                innerHTML={contentOfReport(answer, customReportHeader)} />,
+              Ok: (answer) => <div class="report-printable">
+                <div aria-label={t("customReport.result")} class="report-output"
+                  innerHTML={contentOfReport(answer, customReportHeader)} />
+              </div>,
             })}
           </Show>
         </Show>
@@ -261,6 +269,10 @@ const customReportHeader = (header: string): string =>
   Object.hasOwn(en.customReport.headers, header)
     ? String(t(`customReport.headers.${header as CustomReportHeader}`))
     : header
+
+function PrintButton(): JSX.Element {
+  return <Button size="sm" variant="outline" class="report-print-action" onClick={() => window.print()}>{t("report.print")}</Button>
+}
 
 const definitionHeadline = (trouble: DefinitionTrouble): string => {
   switch (trouble.kind) {

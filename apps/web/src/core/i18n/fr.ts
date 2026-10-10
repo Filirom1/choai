@@ -66,6 +66,7 @@ export const fr: Dictionary = {
     nothingMatches: "aucun résultat",
     range: "{{ from }}–{{ to }} sur {{ total }}",
     export: "Exporter le journal",
+    print: "Imprimer",
     newer: "Plus récentes",
     older: "Plus anciennes",
   },
@@ -130,7 +131,7 @@ export const fr: Dictionary = {
   accounts: { ...en.accounts, all: "Tous les comptes", noJournal: "Aucun journal ouvert.", panelTitle: "Comptes" },
   trialBalance: { ...en.trialBalance, lead: "Tous les comptes du journal, présentés dans les deux colonnes de contrôle.", empty: "Aucun compte.", account: "Compte", debit: "Débit", credit: "Crédit" },
   ledger: { ...en.ledger, title: "Grand livre", lead: "Tous les mouvements de ce compte et de ses sous-comptes.", day: "Date", description: "Libellé", amount: "Montant", balance: "Solde", empty: "Aucun mouvement.", latest: "Les {{ shown }} derniers mouvements sur {{ total }}.", unfocused: "Sélectionnez une ligne ou écrivez inacct:COMPTE dans la requête." },
-  report: { ...en.report, total: "Total", working: "Calcul…", needsJournal: "Ouvrez d'abord un journal.", period: "Période", from: "Du (inclus)", to: "Au (inclus)", filters: "Filtres", filtered: "Filtres — ce rapport est filtré" },
+  report: { ...en.report, total: "Total", working: "Calcul…", needsJournal: "Ouvrez d'abord un journal.", period: "Période", from: "Du (inclus)", to: "Au (inclus)", filters: "Filtres", filtered: "Filtres — ce rapport est filtré", print: "Imprimer le rapport" },
   books: { ...en.books, switch: "Quels sont ces livres", entries: "Entrées de ce livre", add: "Ajouter un livre…", none: "Aucun livre sélectionné", addTitle: "Ajouter un livre", addBody: "Un autre ensemble de livres, conservé séparément des livres actuels.", fromGitHub: "Importer depuis un dépôt", backToAdd: "Retour aux méthodes d'ajout" },
   library: { ...en.library, title: "Journal actuel", nameLives: "Conservé comme première ligne du journal, afin de voyager avec le fichier.", kept: "Conservé sur cet appareil.", notKept: "Ce navigateur peut le supprimer si l'application reste inactive.", close: "Fermer et supprimer de cet appareil" },
   shortcuts: {

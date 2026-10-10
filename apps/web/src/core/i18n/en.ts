@@ -34,6 +34,7 @@ export const en = {
     nothingMatches: "nothing matches",
     range: "{{ from }}–{{ to }} of {{ total }}",
     export: "Export the journal",
+    print: "Print",
     newer: "Newer",
     older: "Older",
   },
@@ -92,6 +93,7 @@ export const en = {
     to: "To (included)",
     filters: "Filters",
     filtered: "Filters — narrowing this report",
+    print: "Print report",
   },
   propose: {
     title: "Written, not yet kept",
