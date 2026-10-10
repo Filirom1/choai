@@ -19,7 +19,7 @@ import { t } from "~/core/i18n"
  * With nothing open it says so. The app's own name would be advertising in the
  * one place that is meant to answer a question.
  */
-export function BookSwitcher(props: { onAdd: () => void; onSwitched: () => void }): JSX.Element {
+export function BookSwitcher(props: { onAdd: () => void; onSwitched: (kind: "book" | "entries") => void }): JSX.Element {
   const [open, setOpen] = createSignal(false)
   const [chosenEntries, setChosenEntries] = createSignal<readonly string[]>([])
   const current = (): string | undefined => getOrUndefined(journal())?.source.label
@@ -33,7 +33,7 @@ export function BookSwitcher(props: { onAdd: () => void; onSwitched: () => void 
   const choose = async (id: string): Promise<void> => {
     setOpen(false)
     if (id === getOrUndefined(journal())?.bookId) return
-    props.onSwitched()
+    props.onSwitched("book")
     await switchTo(id)
   }
 
@@ -97,7 +97,7 @@ export function BookSwitcher(props: { onAdd: () => void; onSwitched: () => void 
                           : [...chosenEntries(), entry]
                         if (next.length === 0) return
                         setChosenEntries(next)
-                        props.onSwitched()
+                        props.onSwitched("entries")
                         void switchEntries(next)
                       }}
                       class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-accent"

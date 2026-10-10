@@ -463,11 +463,11 @@ export function Layout(props: ParentProps) {
                     and on a phone there is only room for one of them. */}
                 <BookSwitcher
                   onAdd={() => moves.move((at) => ({ ...at, path: ADD, fragment: atTheWork(atTheList(at.fragment)) }))}
-                  onSwitched={() => {
+                  onSwitched={(kind) => {
                     // The query belonged to the books being put down; an account
                     // it names may not exist in the ones being picked up.
                     setQuery("")
-                    moves.toTheJournal()
+                    if (kind === "book") moves.toTheJournal()
                   }}
                 />
               </>
