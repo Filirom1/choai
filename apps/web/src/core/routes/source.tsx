@@ -1,4 +1,4 @@
-import { Show, createSignal, type JSX } from "solid-js"
+import { Show, createMemo, createSignal, onCleanup, type JSX } from "solid-js"
 import { useLocation } from "@solidjs/router"
 
 import { journal, rewriteFile, type OpenJournal } from "~/core/journal/store"
@@ -40,6 +40,16 @@ function Editor(props: { open: OpenJournal }): JSX.Element {
   const [trouble, setTrouble] = createSignal<Trouble | undefined>(undefined)
   const [saving, setSaving] = createSignal(false)
 
+  const attachment = (): Blob | undefined => props.open.source.attachments?.[path()]
+  const isAttachment = (): boolean => attachment() !== undefined
+  const previewUrl = createMemo(() => {
+    const file = attachment()
+    return file === undefined ? undefined : URL.createObjectURL(file)
+  })
+  onCleanup(() => {
+    const url = previewUrl()
+    if (url !== undefined) URL.revokeObjectURL(url)
+  })
   const stored = (): string => props.open.source.files[path()] ?? ""
   /** What is in the box: the edit in progress, or the file as it stands. */
   const text = (): string => unsavedText(path()) ?? stored()
@@ -57,7 +67,7 @@ function Editor(props: { open: OpenJournal }): JSX.Element {
   return (
     /* flex-1 asks the page column for the height it has; see app.tsx. */
     <div class="flex flex-1 flex-col gap-2">
-      <Show when={Object.keys(props.open.source.files).length > 1}>
+      <Show when={Object.keys(props.open.source.files).length + Object.keys(props.open.source.attachments ?? {}).length > 1}>
         <p class="font-mono text-xs text-muted-foreground">{path()}</p>
       </Show>
 
@@ -68,23 +78,33 @@ function Editor(props: { open: OpenJournal }): JSX.Element {
           there is nothing left to gain from dragging a box that is already as
           tall as the window. Below the height it can take, it keeps its floor
           and the page scrolls. */}
-      <textarea
-        class="min-h-[24rem] w-full flex-1 resize-none rounded-md border border-input bg-background p-3 font-mono text-xs leading-relaxed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-        spellcheck={false}
-        autocapitalize="off"
-        autocorrect="off"
-        value={text()}
-        onInput={(event) => holdText(path(), event.currentTarget.value)}
-      />
+      <Show when={!isAttachment()} fallback={
+        <Show when={attachment()?.type.startsWith("image/")} fallback={
+          <iframe src={previewUrl()} title={path()} class="min-h-[36rem] w-full flex-1 rounded-md border border-border" />
+        }>
+          <img src={previewUrl()} alt={path()} class="max-h-[70vh] max-w-full rounded-md border border-border object-contain" />
+        </Show>
+      }>
+        <textarea
+          class="min-h-[24rem] w-full flex-1 resize-none rounded-md border border-input bg-background p-3 font-mono text-xs leading-relaxed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          spellcheck={false}
+          autocapitalize="off"
+          autocorrect="off"
+          value={text()}
+          onInput={(event) => holdText(path(), event.currentTarget.value)}
+        />
+      </Show>
 
-      <div class="flex items-center gap-2">
-        <Button size="sm" disabled={!changed() || saving()} onClick={() => void save()}>
-          {t("source.save")}
-        </Button>
-        <p class="text-xs text-muted-foreground">
-          {saving() ? t("source.checking") : changed() ? t("source.unsaved") : t("source.saved")}
-        </p>
-      </div>
+      <Show when={!isAttachment()}>
+        <div class="flex items-center gap-2">
+          <Button size="sm" disabled={!changed() || saving()} onClick={() => void save()}>
+            {t("source.save")}
+          </Button>
+          <p class="text-xs text-muted-foreground">
+            {saving() ? t("source.checking") : changed() ? t("source.unsaved") : t("source.saved")}
+          </p>
+        </div>
+      </Show>
 
       <Show when={trouble()}>{(cause) => <TroubleNote trouble={cause()} />}</Show>
       <p class="text-xs text-muted-foreground">{t("source.hint")}</p>
@@ -98,5 +118,5 @@ export const entryPath = (open: OpenJournal): string => open.source.entry.replac
 /** The file the address names, where the journal has one by that name; otherwise the entry file. */
 export const fileShown = (hash: string, open: OpenJournal): string => {
   const named = fileOfSource(hash)
-  return named !== undefined && named in open.source.files ? named : entryPath(open)
+  return named !== undefined && (named in open.source.files || named in (open.source.attachments ?? {})) ? named : entryPath(open)
 }

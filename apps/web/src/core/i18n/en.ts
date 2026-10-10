@@ -41,6 +41,7 @@ export const en = {
     heading: "No journal open",
     body: "Everything runs here in the browser — hledger itself, compiled to WebAssembly. Nothing you open is uploaded anywhere.",
     openFiles: "Open journal files",
+    openFolder: "Open a journal folder",
     startFresh: "Start an empty journal",
     tryDemo: "Try the demo",
     demoBody: "A few entries to look around, opened here and kept nowhere. Nothing of yours is touched.",
@@ -315,6 +316,7 @@ export const en = {
   },
   books: {
     switch: "Which books these are",
+    entries: "Entries in this book",
     add: "Add a book…",
     none: "No book selected",
     addTitle: "Add a book",

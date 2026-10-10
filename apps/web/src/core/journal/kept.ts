@@ -36,6 +36,8 @@ export interface BookCard {
   readonly name: string
   /** Which file to parse; the rest are reached through `include`. */
   readonly entry: string
+  /** Entry files selected together, kept outside the journal files. */
+  readonly selectedEntries?: readonly string[]
   readonly remote?: Remote
   readonly openedAt: number
 }
@@ -44,13 +46,15 @@ export interface BookCard {
 export interface KeptFile {
   readonly book: string
   readonly path: string
-  readonly text: string
+  readonly text?: string
+  readonly blob?: Blob
   readonly updatedAt: number
 }
 
 /** A book and everything in it. */
 export interface KeptBook extends BookCard {
   readonly files: Readonly<Record<string, string>>
+  readonly attachments: Readonly<Record<string, Blob>>
 }
 
 const BOOKS = STORE.books
@@ -104,7 +108,8 @@ export const bookWithFiles = async (id: string): Promise<KeptBook | undefined> =
   if (card.result === undefined) return undefined
   return {
     ...card.result,
-    files: Object.fromEntries(rowsOf(files).map((file) => [file.path, file.text])),
+    files: Object.fromEntries(rowsOf(files).flatMap((file) => (file.text === undefined ? [] : [[file.path, file.text]]))),
+    attachments: Object.fromEntries(rowsOf(files).flatMap((file) => (file.blob === undefined ? [] : [[file.path, file.blob]]))),
   }
 }
 
@@ -125,6 +130,9 @@ export const keepBook = async (book: KeptBook): Promise<void> => {
     files.delete(filesOf(book.id))
     for (const [path, text] of Object.entries(book.files)) {
       files.put({ book: book.id, path, text, updatedAt: now })
+    }
+    for (const [path, blob] of Object.entries(book.attachments)) {
+      files.put({ book: book.id, path, blob, updatedAt: now })
     }
   })
 }

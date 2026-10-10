@@ -11,7 +11,7 @@ import { Err, None, Ok, Some, getOrUndefined, type Option, type Result } from "~
 import { t } from "~/core/i18n"
 import { atTheJournal } from "~/core/hledger/turn"
 import { demoJournal } from "./demo"
-import { MAIN, TRANSACTIONS, including, laidOut } from "./layout"
+import { MAIN, TRANSACTIONS, includedBy, including, laidOut } from "./layout"
 import { retitled, titleOf } from "./title"
 import {
   allBooks,
@@ -35,10 +35,14 @@ import {
 export interface Source {
   /** Shown on screen, so it is plain which journal is loaded. */
   readonly label: string
-  /** Every file the journal needs, keyed by the path hledger will see. */
+  /** Every real file the journal needs, keyed by the path hledger will see. */
   readonly files: Readonly<Record<string, string>>
-  /** Which of them to parse; the rest are reached through `include`. */
+  /** Which file to parse when one entry is selected. */
   readonly entry: string
+  /** Files that travel with the book but are not parsed by hledger. */
+  readonly attachments?: Readonly<Record<string, Blob>>
+  /** Several real entry files to combine, kept as local book state. */
+  readonly selectedEntries?: readonly string[]
 }
 
 export interface OpenJournal {
@@ -98,7 +102,16 @@ export const startBook = async (
 export const openBook = async (id: string): Promise<Result<OpenJournal, Trouble>> => {
   const kept = await bookWithFiles(id)
   if (kept === undefined) return Err({ kind: "no-journal" })
-  const source = { label: kept.name, files: kept.files, entry: kept.entry }
+  const oldSelection = kept.entry === `/${SELECTION}` ? includedBy(kept.files[SELECTION] ?? "") : []
+  const selected = kept.selectedEntries ?? (oldSelection.length > 1 ? oldSelection : undefined)
+  const files = Object.fromEntries(Object.entries(kept.files).filter(([path]) => path !== SELECTION))
+  const source = {
+    label: kept.name,
+    files,
+    attachments: kept.attachments,
+    entry: selected?.[0] === undefined ? kept.entry : `/${selected[0]}`,
+    selectedEntries: selected,
+  }
   const read = await attempt(source)
   return read.ok
     ? remember({ bookId: kept.id, source, remote: kept.remote, summary: read.value })
@@ -113,9 +126,24 @@ export const openBook = async (id: string): Promise<Result<OpenJournal, Trouble>
  * of these overlapping would each end up describing what the other had already
  * replaced.
  */
+const SELECTION = ".choai-selection.journal"
+
+const virtualFiles = (source: Source): Readonly<Record<string, string>> => {
+  const selected = source.selectedEntries
+  return selected === undefined || selected.length < 2
+    ? source.files
+    : { ...source.files, [SELECTION]: selected.map((path) => `include ${path}`).join("\n") + "\n" }
+}
+
+const virtualEntry = (source: Source): string =>
+  source.selectedEntries === undefined || source.selectedEntries.length < 2 ? source.entry : `/${SELECTION}`
+
+const openSource = (source: Source): ReturnType<typeof openJournal> =>
+  openJournal(virtualFiles(source), virtualEntry(source))
+
 const attempt = (source: Source): Promise<Result<JournalSummary, Trouble>> =>
   atTheJournal
-    .through(() => task.run(() => openJournal(source.files, source.entry)))
+    .through(() => task.run(() => openSource(source)))
     .catch((cause: unknown) => Err<Trouble, JournalSummary>({ kind: "unreachable", detail: String(cause) }))
 
 /**
@@ -164,9 +192,11 @@ const keep = async (open: OpenJournal): Promise<void> => {
       id: open.bookId,
       name: open.source.label,
       entry: open.source.entry,
+      selectedEntries: open.source.selectedEntries,
       remote: open.remote,
       openedAt: Date.now(),
       files: open.source.files,
+      attachments: open.source.attachments ?? {},
     })
     await markCurrent(open.bookId)
     await restock()
@@ -311,7 +341,7 @@ export const tryOut = async (
   return atTheJournal
     .through(async () => {
       const read = await openJournal(files, entry)
-      if (read.ok) await openJournal(current.source.files, current.source.entry)
+      if (read.ok) await openSource(current.source)
       return read
     })
     .catch((cause: unknown) => Err<Trouble, JournalSummary>({ kind: "unreachable", detail: String(cause) }))
@@ -344,7 +374,7 @@ export const readAside = async (
     .through(async () => {
       const read = await openJournal(files, entry)
       const entries = read.ok ? await everyEntry(0, []) : read
-      await openJournal(current.source.files, current.source.entry)
+      await openSource(current.source)
       return entries
     })
     .catch((cause: unknown) => Err<Trouble, readonly Transaction[]>({ kind: "unreachable", detail: String(cause) }))
@@ -525,9 +555,53 @@ export const openDemo = (): Promise<Result<OpenJournal, Trouble>> => {
  * journal split across files with `include` works: hledger resolves those names
  * itself against the same directory.
  */
-export const openFiles = async (chosen: FileList): Promise<Result<OpenJournal, Trouble>> => {
+export const openFiles = async (chosen: FileList): Promise<Result<OpenJournal, Trouble>> =>
+  openChosenFiles([...chosen].map((file) => [filePath(file), file] as const))
+
+/** The journal files in the current source that can be opened as entries. */
+export const entryCandidates = (source: Source): readonly string[] => {
+  const included = new Set(Object.values(source.files).flatMap(includedBy))
+  const paths = Object.keys(source.files).filter(
+    (path) => path !== SELECTION && /\.(journal|hledger|ledger)$/i.test(path) && !included.has(path),
+  )
+  const current = source.entry.replace(/^\//, "")
+  return [current, ...paths.filter((path) => path !== current)]
+}
+
+/** The entries currently combined in the open book. */
+export const selectedEntries = (source: Source): readonly string[] =>
+  source.selectedEntries ?? [source.entry.replace(/^\//, "")]
+
+/** Read one or more entries from the same set of files, without making another book. */
+export const switchEntries = async (paths: readonly string[]): Promise<Result<OpenJournal, Trouble>> => {
+  const current = getOrUndefined(opened())
+  if (current === undefined) return Err({ kind: "no-journal" })
+  if (paths.length === 0) return Err({ kind: "no-journal" })
+  const absent = paths.find((path) => current.source.files[path] === undefined)
+  if (absent !== undefined) return Err({ kind: "file-missing", path: absent })
+  const entry = paths[0]!
+  const source = {
+    ...current.source,
+    entry: `/${entry}`,
+    selectedEntries: paths.length > 1 ? [...paths] : undefined,
+  }
+  const read = await attempt(source)
+  if (!read.ok) {
+    setTrouble(Some(read.error))
+    return Err(read.error)
+  }
+  return remember({ ...current, source, summary: read.value })
+}
+
+const openChosenFiles = async (
+  chosen: readonly (readonly [string, File])[],
+): Promise<Result<OpenJournal, Trouble>> => {
+  const usable = chosen.filter(([path]) => !isDocumentation(path) && !isGitMetadata(path))
   const contents = await Promise.all(
-    [...chosen].map(async (file) => [file.name, await readText(file)] as const),
+    usable.filter(([path]) => !isAttachment(path)).map(async ([path, file]) => [path, await readText(file)] as const),
+  )
+  const attachments = Object.fromEntries(
+    usable.filter(([path]) => isAttachment(path)).map(([path, file]) => [path, file] as const),
   )
   const files = Object.fromEntries(contents)
   const names = contents.map(([name]) => name)
@@ -535,10 +609,71 @@ export const openFiles = async (chosen: FileList): Promise<Result<OpenJournal, T
   return startBook({
     label: names.length > 1 ? `${entry} (+${names.length - 1} more)` : entry,
     files,
+    attachments,
     entry: `/${entry}`,
   })
 }
 
+const filePath = (file: File): string => file.webkitRelativePath.replace(/^[^/]+\//, "") || file.name
+
+const isDocumentation = (path: string): boolean => /\.(md|markdown)$/i.test(path)
+
+const isAttachment = (path: string): boolean => /\.(pdf|png|jpe?g|gif|webp|bmp)$/i.test(path)
+
+const isGitMetadata = (path: string): boolean => path === ".git" || path.startsWith(".git/")
+
+interface FolderFile {
+  readonly kind: "file"
+  readonly name: string
+  readonly getFile: () => Promise<File>
+}
+
+interface FolderDirectory {
+  readonly kind: "directory"
+  readonly name: string
+  readonly values: () => AsyncIterableIterator<FolderFile | FolderDirectory>
+}
+
+type FolderPicker = () => Promise<FolderDirectory>
+
+const folderPicker = (): FolderPicker | undefined => {
+  const picker = (window as { showDirectoryPicker?: FolderPicker }).showDirectoryPicker
+  return picker?.bind(window)
+}
+
+export const canOpenFolder = (): boolean => folderPicker() !== undefined
+
+/** Open every file below a chosen folder, preserving the paths hledger includes. */
+export const openFolder = async (): Promise<Result<OpenJournal, Trouble> | undefined> => {
+  const choose = folderPicker()
+  if (choose === undefined) return undefined
+  try {
+    const root = await choose()
+    const chosen = await filesBelow(root)
+    return openChosenFiles(chosen)
+  } catch (cause) {
+    return isCancelled(cause) ? undefined : Err({ kind: "unreachable", detail: String(cause) })
+  }
+}
+
+const filesBelow = async (
+  folder: FolderDirectory,
+  prefix: string = "",
+): Promise<readonly (readonly [string, File])[]> => {
+  const children: (FolderFile | FolderDirectory)[] = []
+  for await (const child of folder.values()) children.push(child)
+  const files = await Promise.all(
+    children.filter((child) => child.name !== ".git").map(async (child) =>
+      child.kind === "file"
+        ? ([[prefix + child.name, await child.getFile()]] as const)
+        : filesBelow(child, `${prefix + child.name}/`),
+    ),
+  )
+  return files.flat()
+}
+
+const isCancelled = (cause: unknown): boolean => cause instanceof DOMException && cause.name === "AbortError"
+
 /** The conventional names for the file that includes the others. */
 const looksLikeAnEntry = (name: string): boolean =>
-  /^(main|all)\.(journal|hledger|ledger)$/i.test(name)
+  /(^|\/)(main|all)\.(journal|hledger|ledger)$/i.test(name)

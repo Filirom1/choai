@@ -32,6 +32,7 @@ export const ja: Dictionary = {
     heading: "帳簿が開かれていません",
     body: "すべてブラウザの中で動きます。WebAssembly にした hledger 本体が計算しています。開いたファイルはどこにも送られません。",
     openFiles: "帳簿ファイルを開く",
+    openFolder: "帳簿フォルダーを開く",
     startFresh: "空の帳簿をはじめる",
     tryDemo: "デモを見る",
     demoBody: "中を見て回るための、仕訳がいくつか入った帳簿です。ここで開くだけで、どこにも保存しません。あなたの帳簿には触れません。",
@@ -305,6 +306,7 @@ export const ja: Dictionary = {
   },
   books: {
     switch: "どの帳簿か",
+    entries: "この帳簿の入口",
     add: "帳簿を追加…",
     none: "帳簿選択なし",
     addTitle: "帳簿を追加",
