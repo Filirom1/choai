@@ -5,6 +5,7 @@ import { missingFile } from "~/core/hledger/diagnose"
 import type { DefaultCommodity, JournalSummary, Transaction, Trouble } from "~/core/hledger/wire"
 import { deferred } from "~/core/lib/deferred"
 import { readText } from "~/core/lib/text"
+import { mapLimited } from "~/core/lib/map-limited"
 import { createGate } from "~/core/lib/gate"
 import { createTask } from "~/core/lib/pending"
 import { Err, None, Ok, Some, getOrUndefined, type Option, type Result } from "~/core/lib/monad"
@@ -20,6 +21,8 @@ import {
   forgetBook,
   keepBook,
   markCurrent,
+  attachmentOf,
+  putAttachments,
   type BookCard,
   type Remote,
 } from "./kept"
@@ -32,6 +35,12 @@ import {
  * screens only ask questions afterwards.
  */
 
+export interface Attachment {
+  readonly path: string
+  readonly type: string
+  readonly size: number
+}
+
 export interface Source {
   /** Shown on screen, so it is plain which journal is loaded. */
   readonly label: string
@@ -40,7 +49,7 @@ export interface Source {
   /** Which file to parse when one entry is selected. */
   readonly entry: string
   /** Files that travel with the book but are not parsed by hledger. */
-  readonly attachments?: Readonly<Record<string, Blob>>
+  readonly attachments: readonly Attachment[]
   /** Several real entry files to combine, kept as local book state. */
   readonly selectedEntries?: readonly string[]
 }
@@ -57,6 +66,7 @@ export interface OpenJournal {
 const [opened, setOpened] = createSignal<Option<OpenJournal>>(None)
 const [trouble, setTrouble] = createSignal<Option<Trouble>>(None)
 const [shelf, setShelf] = createSignal<readonly BookCard[]>([])
+const attachmentLoaders = new Map<string, (path: string) => Promise<Blob | undefined>>()
 
 /**
  * The journal outlives any one screen, so this state lives at module scope.
@@ -196,7 +206,7 @@ const keep = async (open: OpenJournal): Promise<void> => {
       remote: open.remote,
       openedAt: Date.now(),
       files: open.source.files,
-      attachments: open.source.attachments ?? {},
+      attachments: open.source.attachments,
     })
     await markCurrent(open.bookId)
     await restock()
@@ -544,6 +554,7 @@ export const openDemo = (): Promise<Result<OpenJournal, Trouble>> => {
   return startBook({
     label: t("welcome.demoLabel"),
     files: laidOut(demoJournal()),
+    attachments: [],
     entry: `/${MAIN}`,
   })
 }
@@ -557,6 +568,15 @@ export const openDemo = (): Promise<Result<OpenJournal, Trouble>> => {
  */
 export const openFiles = async (chosen: FileList): Promise<Result<OpenJournal, Trouble>> =>
   openChosenFiles([...chosen].map((file) => [filePath(file), file] as const))
+
+/** Load only the companion named by the current view. */
+export const loadAttachment = async (book: string, path: string): Promise<Blob | undefined> =>
+  (await attachmentOf(book, path)) ?? (await attachmentLoaders.get(book)?.(path))
+
+/** Register a remote fallback; the fetched blob is cached by the caller. */
+export const registerAttachmentLoader = (book: string, load: (path: string) => Promise<Blob | undefined>): void => {
+  attachmentLoaders.set(book, load)
+}
 
 /** The journal files in the current source that can be opened as entries. */
 export const entryCandidates = (source: Source): readonly string[] => {
@@ -600,18 +620,20 @@ const openChosenFiles = async (
   const contents = await Promise.all(
     usable.filter(([path]) => !isAttachment(path)).map(async ([path, file]) => [path, await readText(file)] as const),
   )
-  const attachments = Object.fromEntries(
-    usable.filter(([path]) => isAttachment(path)).map(([path, file]) => [path, file] as const),
-  )
+  const binary = usable.filter(([path]) => isAttachment(path))
   const files = Object.fromEntries(contents)
   const names = contents.map(([name]) => name)
   const entry = names.find(looksLikeAnEntry) ?? names[0] ?? ""
-  return startBook({
+  const opened = await startBook({
     label: names.length > 1 ? `${entry} (+${names.length - 1} more)` : entry,
     files,
-    attachments,
+    attachments: binary.map(([path, file]) => ({ path, type: file.type, size: file.size })),
     entry: `/${entry}`,
   })
+  if (opened.ok) {
+    await mapLimited(binary, 2, async ([path, file]) => putAttachments(opened.value.bookId, [{ path, type: file.type, size: file.size, blob: file }]))
+  }
+  return opened
 }
 
 const filePath = (file: File): string => file.webkitRelativePath.replace(/^[^/]+\//, "") || file.name

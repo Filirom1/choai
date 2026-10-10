@@ -1,6 +1,6 @@
 import { Err, Ok, getOrUndefined, type Result } from "~/core/lib/monad"
-import { journal, openBringingMissing, rewriteFile, type OpenJournal } from "~/core/journal/store"
-import type { Remote } from "~/core/journal/kept"
+import { journal, openBringingMissing, registerAttachmentLoader, rewriteFile, type Attachment, type OpenJournal } from "~/core/journal/store"
+import { putAttachments, type Remote } from "~/core/journal/kept"
 import type { Trouble } from "~/core/hledger/wire"
 import { fetchBinary, fetchFile, putFile, repositoryFiles, type Failure, type Where } from "./api"
 import { agree, agreedOn, token, type Agreed } from "./kept"
@@ -37,6 +37,7 @@ export type Outcome =
   | { readonly did: "nothing" }
 
 const directoryOf = (path: string): string => path.slice(0, path.lastIndexOf("/") + 1)
+const mimeOf = (path: string): string => ({ pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp" }[path.split(".").pop()?.toLowerCase() ?? ""] ?? "application/octet-stream")
 const nameOf = (path: string): string => path.slice(path.lastIndexOf("/") + 1)
 
 const where = (remote: Remote, path: string): Where => ({
@@ -102,29 +103,20 @@ const take = async (
   if (!paths.includes(remote.path)) return Err({ at: "github", failure: { kind: "no-such-file" } })
 
   const brought = new Map<string, { text: string; sha: string; repoPath: string }>()
-  const attachments: Record<string, Blob> = {}
   const relative = (path: string): string => path.slice(directory.length)
   const binary = (path: string): boolean => /\.(pdf|png|jpe?g|gif|webp|bmp)$/i.test(path)
-
-  const fetched = await Promise.all(
-    paths.map(async (repoPath) => {
-      if (binary(repoPath)) {
-        const file = await fetchBinary(key, where(remote, repoPath))
-        return file.ok
-          ? { kind: "attachment" as const, path: relative(repoPath), repoPath, blob: file.value.blob, sha: file.value.sha }
-          : { kind: "failure" as const, error: file.error }
-      }
-      const file = await fetchFile(key, where(remote, repoPath))
-      return file.ok
-        ? { kind: "text" as const, path: relative(repoPath), repoPath, text: file.value.text, sha: file.value.sha }
-        : { kind: "failure" as const, error: file.error }
-    }),
-  )
+  const attachmentPaths = paths.filter(binary)
+  const attachments: readonly Attachment[] = attachmentPaths.map((path) => ({ path: relative(path), type: mimeOf(path), size: 0 }))
+  const fetched = await Promise.all(paths.filter((path) => !binary(path)).map(async (repoPath) => {
+    const file = await fetchFile(key, where(remote, repoPath))
+    return file.ok
+      ? { kind: "text" as const, path: relative(repoPath), repoPath, text: file.value.text, sha: file.value.sha }
+      : { kind: "failure" as const, error: file.error }
+  }))
   const failure = fetched.find((file) => file.kind === "failure")
   if (failure?.kind === "failure") return Err({ at: "github", failure: failure.error })
   fetched.forEach((file) => {
     if (file.kind === "text") brought.set(file.path, { text: file.text, sha: file.sha, repoPath: file.repoPath })
-    if (file.kind === "attachment") attachments[file.path] = file.blob
   })
 
   const opened = await openBringingMissing(
@@ -143,12 +135,21 @@ const take = async (
   )
   if (!opened.ok) return Err({ at: "hledger", trouble: opened.error })
 
+  registerAttachmentLoader(into, async (path) => {
+    const repoPath = `${directory}${path}`
+    const file = await fetchBinary(key, where(remote, repoPath))
+    if (!file.ok) return undefined
+    const metadata = attachments.find((attachment) => attachment.path === path)
+    if (metadata !== undefined) await putAttachments(into, [{ ...metadata, blob: file.value.blob }])
+    return file.value.blob
+  })
+
   await Promise.all(
     [...brought].map(([path, file]) =>
       agree(into, { path, repoPath: file.repoPath, sha: file.sha, baseText: file.text, at: Date.now() }),
     ),
   )
-  return Ok({ did: "pulled", files: brought.size + Object.keys(attachments).length })
+  return Ok({ did: "pulled", files: brought.size + attachments.length })
 }
 
 /**

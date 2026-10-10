@@ -82,7 +82,7 @@ export function SourceExplorer(props: {
 const inReadingOrder = (open: OpenJournal): readonly string[] => {
   const entry = entryPath(open)
   const files = Object.keys(open.source.files).filter((path) => path !== entry)
-  return [entry, ...[...files, ...Object.keys(open.source.attachments ?? {})].sort()]
+  return [entry, ...[...files, ...open.source.attachments.map(({ path }) => path)].sort()]
 }
 
 /**

@@ -1,7 +1,7 @@
-import { Show, createMemo, createSignal, onCleanup, type JSX } from "solid-js"
+import { Show, createEffect, createResource, createSignal, onCleanup, type JSX } from "solid-js"
 import { useLocation } from "@solidjs/router"
 
-import { journal, rewriteFile, type OpenJournal } from "~/core/journal/store"
+import { journal, loadAttachment, rewriteFile, type OpenJournal } from "~/core/journal/store"
 import { differsFrom, holdText, letTextGo, unsavedText } from "~/core/journal/unsaved-text"
 import { fileOfSource } from "~/core/address/address"
 import type { Trouble } from "~/core/hledger/wire"
@@ -40,15 +40,21 @@ function Editor(props: { open: OpenJournal }): JSX.Element {
   const [trouble, setTrouble] = createSignal<Trouble | undefined>(undefined)
   const [saving, setSaving] = createSignal(false)
 
-  const attachment = (): Blob | undefined => props.open.source.attachments?.[path()]
+  const attachment = (): OpenJournal["source"]["attachments"][number] | undefined =>
+    props.open.source.attachments.find((file) => file.path === path())
   const isAttachment = (): boolean => attachment() !== undefined
-  const previewUrl = createMemo(() => {
-    const file = attachment()
-    return file === undefined ? undefined : URL.createObjectURL(file)
-  })
-  onCleanup(() => {
-    const url = previewUrl()
-    if (url !== undefined) URL.revokeObjectURL(url)
+  const [blob] = createResource(
+    () => (isAttachment() ? path() : undefined),
+    (file) => loadAttachment(props.open.bookId, file),
+  )
+  const [previewUrl, setPreviewUrl] = createSignal<string | undefined>(undefined)
+  createEffect(() => {
+    const file = blob()
+    const next = file === undefined ? undefined : URL.createObjectURL(file)
+    setPreviewUrl(next)
+    onCleanup(() => {
+      if (next !== undefined) URL.revokeObjectURL(next)
+    })
   })
   const stored = (): string => props.open.source.files[path()] ?? ""
   /** What is in the box: the edit in progress, or the file as it stands. */
@@ -67,7 +73,7 @@ function Editor(props: { open: OpenJournal }): JSX.Element {
   return (
     /* flex-1 asks the page column for the height it has; see app.tsx. */
     <div class="flex flex-1 flex-col gap-2">
-      <Show when={Object.keys(props.open.source.files).length + Object.keys(props.open.source.attachments ?? {}).length > 1}>
+      <Show when={Object.keys(props.open.source.files).length + props.open.source.attachments.length > 1}>
         <p class="font-mono text-xs text-muted-foreground">{path()}</p>
       </Show>
 
@@ -79,11 +85,15 @@ function Editor(props: { open: OpenJournal }): JSX.Element {
           tall as the window. Below the height it can take, it keeps its floor
           and the page scrolls. */}
       <Show when={!isAttachment()} fallback={
-        <Show when={attachment()?.type.startsWith("image/")} fallback={
-          <iframe src={previewUrl()} title={path()} class="min-h-[36rem] w-full flex-1 rounded-md border border-border" />
-        }>
-          <img src={previewUrl()} alt={path()} class="max-h-[70vh] max-w-full rounded-md border border-border object-contain" />
-        </Show>
+        <Show when={blob.loading} fallback={
+          <Show when={blob()} fallback={<p class="text-sm text-muted-foreground">Unable to load attachment.</p>}>
+            <Show when={attachment()?.type.startsWith("image/")} fallback={
+              <iframe src={previewUrl()} title={path()} class="min-h-[36rem] w-full flex-1 rounded-md border border-border" />
+            }>
+              <img src={previewUrl()} alt={path()} class="max-h-[70vh] max-w-full rounded-md border border-border object-contain" />
+            </Show>
+          </Show>
+        }><p class="text-sm text-muted-foreground">Loading attachment…</p></Show>
       }>
         <textarea
           class="min-h-[24rem] w-full flex-1 resize-none rounded-md border border-input bg-background p-3 font-mono text-xs leading-relaxed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
@@ -118,5 +128,5 @@ export const entryPath = (open: OpenJournal): string => open.source.entry.replac
 /** The file the address names, where the journal has one by that name; otherwise the entry file. */
 export const fileShown = (hash: string, open: OpenJournal): string => {
   const named = fileOfSource(hash)
-  return named !== undefined && (named in open.source.files || named in (open.source.attachments ?? {})) ? named : entryPath(open)
+  return named !== undefined && (named in open.source.files || open.source.attachments.some(({ path }) => path === named)) ? named : entryPath(open)
 }
