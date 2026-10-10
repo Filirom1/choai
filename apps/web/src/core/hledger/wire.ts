@@ -263,6 +263,7 @@ export interface Completions {
  */
 export type Trouble =
   | { readonly kind: "no-journal" }
+  | { readonly kind: "unsupported-file" }
   | { readonly kind: "file-missing"; readonly path: string }
   | { readonly kind: "read-failed"; readonly detail: string }
   | { readonly kind: "malformed-request"; readonly detail: string }

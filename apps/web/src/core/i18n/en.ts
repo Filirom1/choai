@@ -505,6 +505,7 @@ export const en = {
   /** Why something did not work. The wording is chosen here, not passed up. */
   trouble: {
     noJournal: "No journal is open yet.",
+    unsupportedFile: "The selected files contain no hledger journal.",
     fileMissing: "{{ path }} is not among the files given.",
     readFailed: "This journal could not be read.",
     malformedRequest: "hledger did not understand that.",

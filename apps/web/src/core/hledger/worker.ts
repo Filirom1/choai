@@ -59,7 +59,7 @@ const start = async (): Promise<Exports> => {
     // hledger probes PATH while deciding whether a pager is available, even
     // when --pager=no is set. The browser has no executable search path; this
     // empty, harmless root keeps that probe from failing before rendering.
-    ["PATH=/"],
+    ["PATH=/", "HOME=/", "XDG_CONFIG_HOME=/"],
     [
       new OpenFile(new File([])),
       // hledger's own stdout and stderr are wired to nothing. Everything it has

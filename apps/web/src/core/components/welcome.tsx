@@ -77,7 +77,7 @@ function Choices(props: { adding: boolean }): JSX.Element {
         type="file"
         class="hidden"
         multiple
-        accept=".journal,.hledger,.ledger,.txt"
+        accept=".journal,.hledger,.ledger"
         onChange={(event) => {
           const chosen = event.currentTarget.files
           if (chosen !== null && chosen.length > 0) void then(() => openFiles(chosen))

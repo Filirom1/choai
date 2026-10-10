@@ -626,7 +626,8 @@ const openChosenFiles = async (
   const binary = usable.filter(([path]) => isAttachment(path))
   const files = Object.fromEntries(contents)
   const names = contents.map(([name]) => name)
-  const entry = names.find(looksLikeAnEntry) ?? names[0] ?? ""
+  const entry = names.find(looksLikeJournalFile)
+  if (entry === undefined) return Err({ kind: "unsupported-file" })
   const opened = await startBook({
     label: names.length > 1 ? `${entry} (+${names.length - 1} more)` : entry,
     files,
@@ -700,9 +701,9 @@ const filesBelow = async (
 
 const isCancelled = (cause: unknown): boolean => cause instanceof DOMException && cause.name === "AbortError"
 
-/** The conventional names for the file that includes the others. */
-const looksLikeAnEntry = (name: string): boolean =>
-  /(^|\/)(main|all)\.(journal|hledger|ledger)$/i.test(name)
+/** Only these file names are handed to hledger as journal entries. */
+const looksLikeJournalFile = (name: string): boolean =>
+  /\.(journal|hledger|ledger)$/i.test(name)
 
 /** Disk operations are explicit and serialized; browser edits remain safe until sent. */
 const localWork = createRoot(() => createGate())

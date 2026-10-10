@@ -492,6 +492,7 @@ export const ja: Dictionary = {
   },
   trouble: {
     noJournal: "まだ帳簿が開かれていません。",
+    unsupportedFile: "選択したファイルに hledger の帳簿がありません。",
     fileMissing: "{{ path }} は渡されたファイルの中にありません。",
     readFailed: "この帳簿を読み込めませんでした。",
     malformedRequest: "hledger が解釈できませんでした。",
