@@ -11,7 +11,7 @@ import { changedPaths } from "~/core/journal/local"
 import { TroubleNote } from "~/core/components/trouble-note"
 import { putDown } from "~/core/journal/switching"
 import { differsFrom, forgetUnsavedText } from "~/core/journal/unsaved-text"
-import { SOURCE, addressOfSourceFile } from "~/core/address/address"
+import { SOURCE, appPath, addressOfSourceFile } from "~/core/address/address"
 import { useMoves } from "~/core/address/moves"
 import { entryPath, fileShown } from "~/core/routes/source"
 import { getOrUndefined, type Result } from "~/core/lib/monad"
@@ -58,7 +58,7 @@ export function SourceExplorer(props: {
                 class="flex w-full items-center gap-1 px-3 py-1 text-left font-mono text-xs hover:bg-accent hover:text-accent-foreground"
                 classList={{
                   "bg-accent text-accent-foreground":
-                    location.pathname === SOURCE && fileShown(location.hash, open()) === path,
+                    appPath(location.pathname) === SOURCE && fileShown(location.hash, open()) === path,
                 }}
               >
                 <span class="min-w-0 truncate">{path}</span>
