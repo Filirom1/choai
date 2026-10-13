@@ -1,6 +1,6 @@
 import { edition } from "~/edition"
 import { viewsWith, type View } from "~/edition/types"
-import { ADD, JOURNAL, REPORTS, SOURCE } from "~/core/address/address"
+import { ADD, JOURNAL, RECONCILIATION, REPORTS, SOURCE } from "~/core/address/address"
 import { GitExplorer } from "~/core/explorer/GitExplorer"
 import { behindNow } from "~/core/components/git/kept-in-view"
 import { JournalExplorer } from "~/core/explorer/JournalExplorer"
@@ -9,12 +9,13 @@ import { SettingsExplorer } from "~/core/explorer/SettingsExplorer"
 import { ReportsExplorer } from "~/core/explorer/ReportsExplorer"
 import { t } from "~/core/i18n"
 import { focusesAnAccount, namesAccounts } from "~/core/journal/terms"
-import { FileCodeIcon, GitBranchIcon, ReceiptIcon, ScaleIcon, SettingsIcon } from "~/core/lib/ui/icons"
+import { FileCodeIcon, GitBranchIcon, ReceiptIcon, ReconciliationIcon, ScaleIcon, SettingsIcon } from "~/core/lib/ui/icons"
 import Add from "~/core/routes/add"
 import Git from "~/core/routes/git"
 import Journal from "~/core/routes/journal"
 import Licenses from "~/core/routes/licenses"
 import Reports from "~/core/routes/reports"
+import Reconcile from "~/core/routes/reconcile"
 import Settings from "~/core/routes/settings"
 import Source from "~/core/routes/source"
 
@@ -43,6 +44,17 @@ const CORE: readonly View[] = [
     Icon: ReceiptIcon,
     Explorer: JournalExplorer,
     page: Journal,
+    writes: true,
+    queried: true,
+    owns: namesAccounts,
+    reached: { from: "rail" },
+  },
+  {
+    href: RECONCILIATION,
+    label: () => t("nav.reconciliation"),
+    Icon: ReconciliationIcon,
+    Explorer: JournalExplorer,
+    page: Reconcile,
     writes: true,
     queried: true,
     owns: namesAccounts,

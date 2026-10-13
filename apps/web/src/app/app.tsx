@@ -178,6 +178,7 @@ export function Layout(props: ParentProps) {
    *
    * The settings explorer chooses a section rather than a query and takes its own
    * address there, so it hands up nothing and nothing here moves.
+   *
    */
   const chose = (chosen?: string): void => {
     if (chosen !== undefined) {

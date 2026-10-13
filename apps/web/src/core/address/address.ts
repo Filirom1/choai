@@ -21,6 +21,9 @@
 /** Where the journal is. Nothing is at `/`: that is only the way in. */
 export const JOURNAL = "/journal"
 
+/** The dedicated reconciliation screen. Its account and date remain in the query. */
+export const RECONCILIATION = "/reconcile"
+
 /**
  * The journal's own text. Its part of the address is the file on screen,
  * encoded, so a name holding the joining mark cannot be read as a layer.

@@ -25,6 +25,15 @@ import { locale, t } from "~/core/i18n"
 const WIDTH = "max-w-2xl"
 
 export default function Journal(): JSX.Element {
+  return (
+    <Show when={getOrUndefined(journal())} fallback={<Welcome />}>
+      <Entries />
+    </Show>
+  )
+}
+
+/** The journal's entries, a page at a time, newest first. */
+function Entries(): JSX.Element {
   const [query] = useQuery()
   const [at, toPage] = usePage()
 
@@ -34,7 +43,7 @@ export default function Journal(): JSX.Element {
   )
 
   return (
-    <Show when={getOrUndefined(journal())} fallback={<Welcome />}>
+    <>
       {matchResource(page(), {
         Loading: () => <p class="text-sm text-muted-foreground">{t("journal.reading")}</p>,
         Err: (trouble) => <TroubleNote trouble={trouble} />,
@@ -71,7 +80,7 @@ export default function Journal(): JSX.Element {
           </div>
         ),
       })}
-    </Show>
+    </>
   )
 }
 

@@ -1,5 +1,6 @@
 import type { JSX } from 'solid-js'
 import receiptSvg from './receipt.svg?raw'
+import reconciliationSvg from './reconciliation.svg?raw'
 import scaleSvg from './scale.svg?raw'
 import settingsSvg from './settings.svg?raw'
 import panelLeftSvg from './panel-left.svg?raw'
@@ -41,6 +42,8 @@ const icon =
 export const ReceiptIcon = icon(receiptSvg)
 /** The statements: a pair of scales, which is what the books must balance to. */
 export const ScaleIcon = icon(scaleSvg)
+/** Matching the book against an external statement. */
+export const ReconciliationIcon = icon(reconciliationSvg)
 /** Settings. */
 export const SettingsIcon = icon(settingsSvg)
 /** Narrowing what a report covers. */

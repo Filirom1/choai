@@ -32,8 +32,13 @@ export type Where =
   /** One posting, counted from zero in the order they are written. */
   | { readonly on: "posting"; readonly at: number }
 
-const COMMENT = /^\s*[;#*]/
-const INDENTED_COMMENT = /^\s+[;#*]/
+/**
+ * `*` is a comment only in the first column. Indented, it is a posting's
+ * cleared mark, and a posting reading as a comment would put a tag on the
+ * posting after it.
+ */
+const COMMENT = /^(?:[;#*]|\s+[;#])/
+const INDENTED_COMMENT = /^\s+[;#]/
 
 /**
  * Which line of the entry a place refers to.
