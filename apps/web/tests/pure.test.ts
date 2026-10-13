@@ -5,7 +5,7 @@ import { describe as describeTheApp } from "~/core/api/manifest"
 
 import { amountExample } from "~/core/compose/hint"
 import { asWritten, ghostOf, isBare } from "~/core/compose/commodity"
-import { draftToJournal, emptyDraft, isWritable, whatIsMissing } from "~/core/compose/draft"
+import { applyEdit, draftOfText, draftToJournal, emptyDraft, isWritable, whatIsMissing } from "~/core/compose/draft"
 import { followingPrevious } from "~/core/compose/following"
 import { digits, fields, listOf, nothing, oneOf, spare, text } from "~/core/lib/monad/shape"
 import { looksTabular, rowsOf } from "~/core/lib/csv"
@@ -1062,7 +1062,7 @@ describe("an account's ledger", () => {
     pamount: [],
     pcomment: "",
     pdate: null,
-    pstatus: "Unmarked",
+    pstatus: "Unmarked" as const,
     ptags: [],
     ptransaction_: index,
   })
@@ -1161,11 +1161,13 @@ describe("an entry written after one like it", () => {
     pamount: [],
     pcomment,
     pdate: null,
-    pstatus: "Unmarked",
+    pstatus: "Unmarked" as const,
     ptags,
   })
   const previous = {
     tindex: 1,
+    tstatus: "Unmarked",
+    tcode: "",
     tsourcepos: [
       { sourceName: "t", sourceLine: 1, sourceColumn: 1 },
       { sourceName: "t", sourceLine: 3, sourceColumn: 1 },
@@ -1224,5 +1226,111 @@ describe("an entry written after one like it", () => {
     expect(next.postings[0]).toEqual(begun.postings[0])
     expect(next.postings[1]?.account).toBe("資産:普通預金")
     expect(next.postings[1]?.tags).toEqual([{ name: "x", value: "1" }])
+  })
+})
+
+describe("an entry shown as its form, and as the text it is written as", () => {
+  const written = [
+    "2026-08-16 Shop  ; receipt:r-1",
+    "    ; needs-checking:",
+    "    expenses:food  $12.00  ; why:a guess",
+    "    assets:cash",
+    "",
+  ].join("\n")
+
+  test("a text the form writes back unchanged reads back as its draft", () => {
+    const draft = draftOfText(written)
+    expect(draft).toBeDefined()
+    expect(draft?.payee).toBe("Shop")
+    expect(draft?.postings[0]?.amount).toBe("$12.00")
+    expect(draft?.postings[1]?.amount).toBe("")
+    expect(draft?.postings[0]?.tags).toEqual([{ name: "why", value: "a guess" }])
+  })
+
+  test("the spacing of a text is not a difference the form would lose", () => {
+    const spaced = written.replace("expenses:food  $12.00", "expenses:food        $12.00")
+    expect(draftOfText(spaced)).toBeDefined()
+  })
+
+  test("a cleared entry's mark is read back, and written where it was", () => {
+    const cleared = written.replace("2026-08-16 Shop", "2026-08-16 * Shop")
+    const draft = draftOfText(cleared)
+    expect(draft?.status).toBe("Cleared")
+    expect(draftToJournal(draft!)).toBe(cleared)
+  })
+
+  test("a pending posting's mark is read back, and written where it was", () => {
+    const pending = written.replace("    assets:cash", "    ! assets:cash")
+    const draft = draftOfText(pending)
+    expect(draft?.postings[1]?.status).toBe("Pending")
+    expect(draftToJournal(draft!)).toBe(pending)
+  })
+
+  test("an unmarked entry is written with no mark, as it always was", () => {
+    expect(draftToJournal(draftOfText(written)!)).toBe(written)
+  })
+
+  test("a comment after a figure, which is not a tag, leaves the entry as text", () => {
+    expect(draftOfText(written.replace("$12.00  ; why:a guess", "$12.00  ; a note about it"))).toBeUndefined()
+  })
+
+  test("a draft is written as the text it reads back from", () => {
+    const draft = draftOfText(written)
+    expect(draft).toBeDefined()
+    expect(draftToJournal(draft!)).toBe(written)
+  })
+
+  test("a draft's edit changes only what it names", () => {
+    const draft = emptyDraft("2026-08-16")
+    const edited = applyEdit(draft, { kind: "fields", change: { payee: "Shop" } })
+    expect(edited.payee).toBe("Shop")
+    expect(edited.date).toBe("2026-08-16")
+    expect(draft.payee).toBe("")
+  })
+})
+
+describe("the code and the marks an entry is written with", () => {
+  const base = emptyDraft("2026-08-16")
+  const filled = {
+    ...base,
+    payee: "Shop",
+    postings: [
+      { account: "expenses:food", amount: "$12.00", tags: [] },
+      { account: "assets:bank", amount: "", tags: [] },
+    ],
+  }
+
+  test("a code goes in parentheses between the mark and the payee, as hledger reads it", () => {
+    const draft = { ...filled, status: "Cleared" as const, code: "1234" }
+    expect(draftToJournal(draft).split("\n")[0]).toBe("2026-08-16 * (1234) Shop")
+  })
+
+  test("a code with no mark goes straight after the date", () => {
+    const draft = { ...filled, code: "ab-9" }
+    expect(draftToJournal(draft).split("\n")[0]).toBe("2026-08-16 (ab-9) Shop")
+  })
+
+  test("an entry with neither keeps its header as it always was", () => {
+    expect(draftToJournal(filled).split("\n")[0]).toBe("2026-08-16 Shop")
+  })
+
+  test("a code and mark read back from the text they were written in", () => {
+    const text = "2026-08-16 * (1234) Shop | coffee\n    assets:bank  $-12.00\n    expenses:food\n"
+    const draft = draftOfText(text)
+    expect(draft?.status).toBe("Cleared")
+    expect(draft?.code).toBe("1234")
+    expect(draft?.note).toBe("coffee")
+    expect(draftToJournal(draft!)).toBe(text)
+  })
+
+  test("a posting's pending mark is written where hledger reads it", () => {
+    const draft = {
+      ...filled,
+      postings: [
+        { account: "expenses:food", amount: "$12.00", tags: [], status: "Pending" as const },
+        { account: "assets:bank", amount: "", tags: [] },
+      ],
+    }
+    expect(draftToJournal(draft).split("\n")[1]).toBe("    ! expenses:food  $12.00")
   })
 })

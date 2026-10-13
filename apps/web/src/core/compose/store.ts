@@ -2,112 +2,79 @@ import { createSignal, type Accessor } from "solid-js"
 
 import type { Trouble } from "~/core/hledger/wire"
 import { None, Some, type Option } from "~/core/lib/monad"
-import { commitDraft } from "./commit"
+import { declaredCommodity } from "~/core/journal/store"
+import { commitDraft, commitText } from "./commit"
+import { emptyDraft, todayISO, type DraftEdit } from "./draft"
 import {
-  emptyDraft,
-  emptyPosting,
-  isWritable,
-  todayISO,
-  type Draft,
-  type DraftPosting,
-  type Tag,
-} from "./draft"
+  applySurfaceEdit,
+  asForm,
+  asText,
+  hasSomethingToWrite,
+  toForm,
+  toText,
+  type Surface,
+} from "./surface"
 
-/** The entry being written. Whether it is on screen belongs to `~/dock`. */
+/**
+ * The entry being written, as a form or as the text it will be written as.
+ *
+ * Whether it is on screen belongs to `~/dock`.
+ */
 
-const [draft, setDraft] = createSignal<Draft>(emptyDraft(todayISO()))
+const [surface, setSurface] = createSignal<Surface>(asForm(emptyDraft(todayISO())))
 const [trouble, setTrouble] = createSignal<Option<Trouble>>(None)
 const [saving, setSaving] = createSignal(false)
 
-export { draft, saving }
-
+export const entryShown: Accessor<Surface> = surface
 export const savingTrouble: Accessor<Option<Trouble>> = trouble
+export { saving }
 
-export const editDraft = (change: Partial<Draft>): void => {
-  setDraft((was) => ({ ...was, ...change }))
+export const editDraft = (edit: DraftEdit): void => {
+  setSurface((was) => applySurfaceEdit(was, edit))
 }
 
-export const editPosting = (index: number, change: Partial<DraftPosting>): void => {
-  setDraft((was) => ({ ...was, postings: replaceAt(was.postings, index, change) }))
+/** Show the entry as the text it would be written as. */
+export const showAsText = (): void => {
+  setSurface((was) => toText(was, declaredCommodity()))
+  setTrouble(None)
 }
 
-export const addPosting = (): void => {
-  setDraft((was) => ({ ...was, postings: [...was.postings, emptyPosting()] }))
+/** Show the entry as its form, if the text can be read back as one. */
+export const showAsForm = (): void => {
+  setSurface((was) => toForm(was, declaredCommodity()))
+  setTrouble(None)
 }
+
+export const editText = (written: string): void => {
+  setSurface(asText(written))
+}
+
+export const writable = (): boolean => hasSomethingToWrite(surface())
 
 /**
- * Metadata on the transaction as a whole. Any name, any value.
- *
- * The name is given where the tag was offered by one — the edition's tags are
- * buttons that start the line with the name already written.
- */
-export const addTag = (name: string): void => {
-  setDraft((was) => ({ ...was, tags: [...was.tags, { name, value: "" }] }))
-}
-
-export const editTag = (index: number, change: Partial<Tag>): void => {
-  setDraft((was) => ({ ...was, tags: replaceAt(was.tags, index, change) }))
-}
-
-export const removeTag = (index: number): void => {
-  setDraft((was) => ({ ...was, tags: was.tags.filter((_, at) => at !== index) }))
-}
-
-/** Metadata on one posting. hledger reads these apart from the transaction's. */
-export const addPostingTag = (posting: number, name: string): void => {
-  setDraft((was) => ({
-    ...was,
-    postings: replaceAt(was.postings, posting, {
-      tags: [...(was.postings[posting]?.tags ?? []), { name, value: "" }],
-    }),
-  }))
-}
-
-export const editPostingTag = (posting: number, index: number, change: Partial<Tag>): void => {
-  setDraft((was) => ({
-    ...was,
-    postings: replaceAt(was.postings, posting, {
-      tags: replaceAt(was.postings[posting]?.tags ?? [], index, change),
-    }),
-  }))
-}
-
-export const removePostingTag = (posting: number, index: number): void => {
-  setDraft((was) => ({
-    ...was,
-    postings: replaceAt(was.postings, posting, {
-      tags: (was.postings[posting]?.tags ?? []).filter((_, at) => at !== index),
-    }),
-  }))
-}
-
-const replaceAt = <T,>(items: readonly T[], index: number, change: Partial<T>): T[] =>
-  items.map((item, at) => (at === index ? { ...item, ...change } : item))
-
-export const writable = (): boolean => isWritable(draft())
-
-/**
- * Write the draft to the journal.
+ * Write the entry: the text if it is being adjusted, the form otherwise.
  *
  * The date stays behind afterwards: entries are usually written in runs, and
  * the run is usually one day's worth.
  */
 export const save = async (): Promise<boolean> => {
+  const current = surface()
   setSaving(true)
   setTrouble(None)
-  const result = await commitDraft(draft())
+  const result = current.shows === "text" ? await commitText(current.text) : await commitDraft(current.draft)
   setSaving(false)
 
   if (!result.ok) {
     setTrouble(Some(result.error))
     return false
   }
-  setDraft((was) => emptyDraft(was.date))
+  const date = current.shows === "form" ? current.draft.date : todayISO()
+  setSurface(asForm(emptyDraft(date)))
   return true
 }
 
 /** Start again with today's date, as if the panel had just been opened. */
 export const clearDraft = (): void => {
-  setDraft(emptyDraft(todayISO()))
+  setSurface(asForm(emptyDraft(todayISO())))
   setTrouble(None)
 }

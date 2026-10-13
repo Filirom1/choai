@@ -9,7 +9,7 @@ import {
   type OpenJournal,
 } from "~/core/journal/store"
 import { Err, getOrUndefined, type Result } from "~/core/lib/monad"
-import { appendToJournal, type Draft } from "./draft"
+import { appendText, appendToJournal, type Draft } from "./draft"
 
 /**
  * Writing an entry down, apart from the panel that usually asks for it.
@@ -25,6 +25,13 @@ export const commitDraft = async (draft: Draft): Promise<Result<OpenJournal, Tro
   const text = transactionsText()
   if (text === undefined) return Err({ kind: "no-journal" })
   return writeTransactions(appendToJournal(text, draft, declaredCommodity()))
+}
+
+/** Write entry text as it stands at the end of the transactions, unchanged by any form. */
+export const commitText = async (entry: string): Promise<Result<OpenJournal, Trouble>> => {
+  const text = transactionsText()
+  if (text === undefined) return Err({ kind: "no-journal" })
+  return writeTransactions(appendText(text, entry))
 }
 
 /** Put an entry's lines back, or take it out by writing nothing in their place. */

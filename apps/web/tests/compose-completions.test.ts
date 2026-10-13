@@ -11,6 +11,8 @@ const known: Completions = {
 
 const entry: Transaction = {
   tindex: 1,
+  tstatus: "Unmarked",
+  tcode: "",
   tsourcepos: [
     { sourceName: "transactions.journal", sourceLine: 1, sourceColumn: 1 },
     { sourceName: "transactions.journal", sourceLine: 4, sourceColumn: 1 },
@@ -20,7 +22,7 @@ const entry: Transaction = {
   tcomment: "",
   ttags: [["project", "home:food"]],
   tpostings: [{
-    paccount: "expenses:food", pamount: [], pcomment: "", pdate: null, pstatus: "",
+    paccount: "expenses:food", pamount: [], pcomment: "", pdate: null, pstatus: "Unmarked",
     ptags: [["receipt", "R123"]],
   }],
 }

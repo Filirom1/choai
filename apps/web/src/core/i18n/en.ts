@@ -461,6 +461,18 @@ export const en = {
     addPosting: "+ another posting",
     willBeWritten: "What gets written",
     hledgerFillsTheRest: "The posting left blank is worked out by hledger.",
+    asText: "Adjust as text",
+    asForm: "Back to the form",
+    code: "Code",
+    codeHint: "a cheque or reference number (optional)",
+    entryStatus: "Entry status",
+    postingStatus: "Posting status",
+    status: {
+      Unmarked: "not marked",
+      Pending: "pending (!)",
+      Cleared: "cleared (*)",
+    },
+    keptAsText: "This entry has parts the form cannot keep, so it stays as text.",
     add: "Add to journal",
   },
   customReport: {

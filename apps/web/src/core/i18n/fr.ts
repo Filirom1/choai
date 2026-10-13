@@ -222,5 +222,17 @@ export const fr: Dictionary = {
     willBeWritten: "Texte qui sera écrit",
     hledgerFillsTheRest: "La ligne laissée vide sera complétée par hledger.",
     add: "Ajouter au journal",
+    asText: "Ajuster en texte",
+    asForm: "Revenir au formulaire",
+    keptAsText: "Cette opération contient des éléments que le formulaire ne peut pas conserver : elle reste en texte.",
+    code: "Code",
+    codeHint: "numéro de chèque ou de référence (facultatif)",
+    entryStatus: "État de l'opération",
+    postingStatus: "État de la ligne",
+    status: {
+      Unmarked: "non pointée",
+      Pending: "en attente (!)",
+      Cleared: "pointée (*)",
+    },
   },
 }

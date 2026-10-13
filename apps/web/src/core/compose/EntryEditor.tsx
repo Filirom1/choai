@@ -4,23 +4,31 @@ import { Button } from "~/core/components/ui/button"
 import { TroubleNote } from "~/core/components/trouble-note"
 import { getOrUndefined } from "~/core/lib/monad"
 import { t } from "~/core/i18n"
+import { EntryForm } from "./EntryForm"
+import { EntryText } from "./EntryText"
 import {
   editEntry,
+  editEntryDraft,
   editing,
-  entryDraft,
+  editingShown,
   entrySaving,
   entryTrouble,
   removeEntry,
   saveEntry,
+  showEditAsForm,
+  showEditAsText,
   stopEditingEntry,
 } from "./editing"
+import { canBeForm, writtenOf } from "./surface"
+import { emptyDraft, todayISO, type Draft } from "./draft"
+import { declaredCommodity } from "~/core/journal/store"
 
 /**
- * One entry, as the lines it is written on.
+ * One entry, as the form it is written from or as the lines it is written on.
  *
- * A box of text rather than a form, because those lines are what the file
- * holds: the alignment somebody chose, a comment against one posting, a tag
- * nobody has taught this app about. All of it comes back out the way it went in.
+ * The same form as writing a new entry, so the auto-completion is the same. An
+ * entry the form would not write back exactly stays as its lines, since the
+ * alignment, a status mark, or a comment on one posting is what the file holds.
  */
 export function EntryEditor(): JSX.Element {
   return (
@@ -31,14 +39,25 @@ export function EntryEditor(): JSX.Element {
             {t("edit.where", { path: span().path, from: span().from, to: span().to })}
           </p>
 
-          <textarea
-            class="min-h-40 w-full resize-y rounded-md border border-input bg-background p-2 font-mono text-xs leading-relaxed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            spellcheck={false}
-            autocapitalize="off"
-            autocorrect="off"
-            value={entryDraft()}
-            onInput={(event) => editEntry(event.currentTarget.value)}
-          />
+          <Show
+            when={editingShown().shows === "form"}
+            fallback={
+              <EntryText
+                text={textOfEdit()}
+                onText={editEntry}
+                onForm={showEditAsForm}
+                keptAsText={!canBeForm(textOfEdit(), declaredCommodity())}
+              />
+            }
+          >
+            {(_) => (
+              <EntryForm draft={draftOfEdit} onEdit={editEntryDraft}>
+                  <Button variant="ghost" size="sm" class="self-start px-1" onClick={showEditAsText}>
+                    {t("compose.asText")}
+                  </Button>
+                </EntryForm>
+            )}
+          </Show>
 
           <div class="flex flex-wrap items-center gap-2">
             <Button
@@ -53,7 +72,7 @@ export function EntryEditor(): JSX.Element {
             <Button variant="ghost" size="sm" class="ml-auto" disabled={entrySaving()} onClick={stopEditingEntry}>
               {t("edit.cancel")}
             </Button>
-            <Button size="sm" disabled={entrySaving()} onClick={() => void saveEntry(entryDraft())}>
+            <Button size="sm" disabled={entrySaving()} onClick={() => void saveEntry(currentText())}>
               {t("edit.save")}
             </Button>
           </div>
@@ -67,3 +86,16 @@ export function EntryEditor(): JSX.Element {
     </Show>
   )
 }
+
+const textOfEdit = (): string => {
+  const current = editingShown()
+  return current.shows === "text" ? current.text : ""
+}
+
+const draftOfEdit = (): Draft => {
+  const current = editingShown()
+  return current.shows === "form" ? current.draft : emptyDraft(todayISO())
+}
+
+/** What gets written: the form as the text it becomes, or the text as it stands. */
+const currentText = (): string => writtenOf(editingShown(), declaredCommodity())

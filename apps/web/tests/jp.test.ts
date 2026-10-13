@@ -127,6 +127,8 @@ const entry = (
   tags: readonly Tag[] = [],
 ): Transaction => ({
   tindex: index,
+  tstatus: "Unmarked",
+  tcode: "",
   tsourcepos: [
     { sourceName: "main.journal", sourceLine: 1, sourceColumn: 1 },
     { sourceName: "main.journal", sourceLine: 3, sourceColumn: 1 },

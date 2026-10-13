@@ -1,199 +1,49 @@
-import { For, Index, Show, createResource, type JSX } from "solid-js"
+import { Show, type JSX } from "solid-js"
 
-import { ask } from "~/core/hledger/client"
-import { declaredCommodity, journal } from "~/core/journal/store"
-import { getOrUndefined } from "~/core/lib/monad"
 import { Button } from "~/core/components/ui/button"
-import { TextField, TextFieldInput } from "~/core/components/ui/text-field"
 import { TroubleNote } from "~/core/components/trouble-note"
-import { XIcon } from "~/core/lib/ui/icons"
+import { getOrUndefined } from "~/core/lib/monad"
+import { declaredCommodity } from "~/core/journal/store"
 import { t } from "~/core/i18n"
-import { edition } from "~/edition"
-import type { OfferedTag } from "~/edition/types"
-import type { DefaultCommodity } from "~/core/hledger/wire"
-import { ghostOf } from "./commodity"
-import { composeCompletions, tagNamesFor, valuesForName } from "./completions"
-import { draftToJournal, type Tag } from "./draft"
-import { EXAMPLE_FIGURE, amountExample } from "./hint"
-import {
-  addPosting,
-  addPostingTag,
-  addTag,
-  draft,
-  editDraft,
-  editPosting,
-  editPostingTag,
-  editTag,
-  removePostingTag,
-  removeTag,
-  save,
-  saving,
-  savingTrouble,
-  writable,
-} from "./store"
+import { EntryForm } from "./EntryForm"
+import { EntryText } from "./EntryText"
+import { editDraft, editText, entryShown, save, saving, savingTrouble, showAsForm, showAsText, writable } from "./store"
+import { canBeForm } from "./surface"
+import { emptyDraft, todayISO, type Draft } from "./draft"
 
 /**
  * Writing an entry, beside the journal it goes into.
  *
- * The text that will be written is shown underneath the boxes, because that text
- * is what the file will contain and what version control will show. It is also
- * the quickest way to learn the format for anyone who has not written one by
- * hand yet.
+ * The form is the same one used for correcting an entry, so auto-completion is
+ * the same in both. The entry can be shown as the text it will be written as,
+ * for the last adjustments by hand, and goes back to the form if it still reads
+ * as the same entry.
  */
 export function ComposePanel(): JSX.Element {
-  const accounts = (): readonly string[] => getOrUndefined(journal())?.summary.accounts ?? []
-  const [suggestions] = createResource(
-    () => getOrUndefined(journal()),
-    async (open) => {
-      const [completions, entries] = await Promise.all([
-        ask({ kind: "completions" }),
-        ask({ kind: "entries", query: "", limit: Math.max(open.summary.transactions, 1), offset: 0 }),
-      ])
-      return composeCompletions(
-        completions.ok ? completions.value : undefined,
-        entries.ok ? entries.value.items : [],
-      )
-    },
-  )
-  const payees = (): readonly string[] => suggestions()?.payees ?? []
-  const knownTags = (): readonly Tag[] => suggestions()?.tags ?? []
-
-  /**
-   * The example in the empty box.
-   *
-   * Where a default commodity is declared its symbol is already shown against
-   * the box, so the example is the figure alone. Everywhere else the symbol has
-   * to come from somewhere, and an example is the only place left: what gets
-   * written is still exactly what was typed, and the symbol is only a nudge.
-   */
-  const amountHint = (): string =>
-    declaredCommodity() !== undefined
-      ? EXAMPLE_FIGURE
-      : (amountExample(getOrUndefined(journal())?.summary.commodities ?? []) ?? t("compose.amount"))
+  const isText = (): boolean => entryShown().shows === "text"
+  const textOf = (): string => {
+    const current = entryShown()
+    return current.shows === "text" ? current.text : ""
+  }
+  const draftOf = (): Draft => {
+    const current = entryShown()
+    return current.shows === "form" ? current.draft : emptyDraft(todayISO())
+  }
 
   return (
     <div class="flex flex-col gap-3 p-3">
-      <Labelled label={t("compose.date")}>
-        <TextFieldInput
-          type="date"
-          class="h-8"
-          value={draft().date}
-          onInput={(event) => editDraft({ date: event.currentTarget.value })}
-        />
-      </Labelled>
-
-      <Labelled label={t("compose.payee")}>
-        <TextFieldInput
-          type="text"
-          class="h-8"
-          placeholder={t("compose.payeeHint")}
-          list="known-payees"
-          value={draft().payee}
-          onInput={(event) => editDraft({ payee: event.currentTarget.value })}
-        />
-      </Labelled>
-
-      <Labelled label={t("compose.note")}>
-        <TextFieldInput
-          type="text"
-          class="h-8"
-          placeholder={t("compose.noteHint")}
-          value={draft().note}
-          onInput={(event) => editDraft({ note: event.currentTarget.value })}
-        />
-      </Labelled>
-
-      <Tags
-        tags={draft().tags}
-        offered={offeredOn("entry")}
-        on="entry"
-        onAdd={addTag}
-        onEdit={editTag}
-        onRemove={removeTag}
-        label={t("compose.tags")}
-      />
-
-      <datalist id="known-accounts">
-        <For each={accounts()}>{(account) => <option value={account} />}</For>
-      </datalist>
-      <datalist id="known-payees">
-        <For each={payees()}>{(payee) => <option value={payee} />}</For>
-      </datalist>
-      <For each={["entry", "posting"] as const}>
-        {(on) => (
-          <datalist id={namesListOf(on)}>
-            <For each={tagNamesFor(offeredOn(on), knownTags())}>{(name) => <option value={name} />}</For>
-          </datalist>
-        )}
-      </For>
-      <For each={tagNamesFor(OFFERED, knownTags())}>
-        {(name) => (
-          <datalist id={valuesListOf(name)}>
-            <For each={valuesForName(name, OFFERED, knownTags())}>{(value) => <option value={value} />}</For>
-          </datalist>
-        )}
-      </For>
-
-      <div class="flex flex-col gap-2">
-        <span class="text-xs font-medium text-muted-foreground">{t("compose.postings")}</span>
-        {/* Index rather than For: these rows are edited in place. For keys by
-            the item itself, so every keystroke would replace the object, tear
-            down the row and take the caret with it. */}
-        <Index each={draft().postings}>
-          {(posting, index) => (
-            <div class="flex flex-col gap-1">
-              <div class="flex gap-1">
-                <TextField class="flex-1">
-                  <TextFieldInput
-                    type="text"
-                    class="h-8"
-                    list="known-accounts"
-                    placeholder={t("compose.account")}
-                    value={posting().account}
-                    onInput={(event) => editPosting(index, { account: event.currentTarget.value })}
-                  />
-                </TextField>
-                <TextField class="relative w-24">
-                  <TextFieldInput
-                    type="text"
-                    class="h-8 text-right font-mono"
-                    style={roomForSymbol(declaredCommodity())}
-                    placeholder={amountHint()}
-                    value={posting().amount}
-                    onInput={(event) => editPosting(index, { amount: event.currentTarget.value })}
-                  />
-                  <Show when={ghostOf(posting().amount, declaredCommodity())}>
-                    {(symbol) => <Ghost of={symbol()} />}
-                  </Show>
-                </TextField>
-              </div>
-              <Tags
-                tags={posting().tags}
-                offered={offeredOn("posting")}
-                on="posting"
-                onAdd={(name) => addPostingTag(index, name)}
-                onEdit={(at, change) => editPostingTag(index, at, change)}
-                onRemove={(at) => removePostingTag(index, at)}
-                label={t("compose.postingTags")}
-                indented
-              />
-            </div>
-          )}
-        </Index>
-        <Button variant="ghost" size="sm" class="self-start px-1" onClick={addPosting}>
-          {t("compose.addPosting")}
+      <Show when={isText()} fallback={<EntryForm draft={draftOf} onEdit={editDraft}>
+        <Button variant="ghost" size="sm" class="self-start px-1" onClick={showAsText}>
+          {t("compose.asText")}
         </Button>
-      </div>
-
-      <div class="flex flex-col gap-1">
-        <span class="text-xs font-medium text-muted-foreground">{t("compose.willBeWritten")}</span>
-        <pre class="overflow-x-auto rounded-md border bg-muted/40 p-2 font-mono text-xs">
-          {draftToJournal(draft(), declaredCommodity())}
-        </pre>
-        <Show when={hasBlankAmount()}>
-          <span class="text-xs text-muted-foreground">{t("compose.hledgerFillsTheRest")}</span>
-        </Show>
-      </div>
+      </EntryForm>}>
+        <EntryText
+          text={textOf()}
+          onText={editText}
+          onForm={showAsForm}
+          keptAsText={!canBeForm(textOf(), declaredCommodity())}
+        />
+      </Show>
 
       <Show when={getOrUndefined(savingTrouble())}>
         {(trouble) => <TroubleNote trouble={trouble()} />}
@@ -203,151 +53,5 @@ export function ComposePanel(): JSX.Element {
         {t("compose.add")}
       </Button>
     </div>
-  )
-}
-
-/**
- * The tags this build's edition offers, and where each of them goes.
- *
- * Read once: an edition is settled before the app runs.
- */
-const OFFERED: readonly OfferedTag[] = edition.tags ?? []
-
-const offeredOn = (on: OfferedTag["on"]): readonly OfferedTag[] => OFFERED.filter((tag) => tag.on === on)
-
-/** One list per name, shared by every box that tag is written in. */
-const valuesListOf = (name: string): string => `offered-tag-values-${name}`
-const namesListOf = (on: OfferedTag["on"]): string => `offered-${on}-tag-names`
-
-const valuesFor = (name: string): string | undefined =>
-  name.trim() === "" ? undefined : valuesListOf(name.trim())
-
-/**
- * Any number of name-and-value pairs, with any names.
- *
- * hledger puts no vocabulary on these — a tag is whatever you write in a comment
- * — so neither does this. What an edition offers is a button that starts the
- * line with the name written and suggestions in the value box, and never a
- * limit on what can be typed there. A button leaves once its tag is on the
- * line, since a second one of the same name is not what anybody pressing it
- * meant.
- */
-function Tags(props: {
-  tags: readonly Tag[]
-  offered: readonly OfferedTag[]
-  on: OfferedTag["on"]
-  label: string
-  indented?: boolean
-  onAdd: (name: string) => void
-  onEdit: (index: number, change: Partial<Tag>) => void
-  onRemove: (index: number) => void
-}): JSX.Element {
-  const notYetWritten = (): readonly OfferedTag[] =>
-    props.offered.filter((offer) => !props.tags.some((tag) => tag.name.trim() === offer.name))
-
-  return (
-    <div class="flex flex-col gap-1" classList={{ "pl-3": props.indented }}>
-      <Show when={props.tags.length > 0}>
-        <span class="text-xs font-medium text-muted-foreground">{props.label}</span>
-      </Show>
-      <Index each={props.tags}>
-        {(tag, index) => (
-          <div class="flex gap-1">
-            <TextField class="flex-1">
-              <TextFieldInput
-                type="text"
-                class="h-7 text-xs"
-                placeholder={t("compose.tagName")}
-                list={namesListOf(props.on)}
-                value={tag().name}
-                onInput={(event) => props.onEdit(index, { name: event.currentTarget.value })}
-              />
-            </TextField>
-            <TextField class="flex-1">
-              <TextFieldInput
-                type="text"
-                class="h-7 text-xs"
-                placeholder={t("compose.tagValue")}
-                list={valuesFor(tag().name)}
-                value={tag().value}
-                onInput={(event) => props.onEdit(index, { value: event.currentTarget.value })}
-              />
-            </TextField>
-            <button
-              type="button"
-              onClick={() => props.onRemove(index)}
-              aria-label={t("compose.removeTag")}
-              title={t("compose.removeTag")}
-              class="inline-flex size-7 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            >
-              <XIcon class="h-3 w-3" />
-            </button>
-          </div>
-        )}
-      </Index>
-      <div class="flex flex-wrap gap-x-1">
-        <Button variant="ghost" size="sm" class="px-1 text-xs" onClick={() => props.onAdd("")}>
-          {t("compose.addTag")}
-        </Button>
-        <For each={notYetWritten()}>
-          {(offer) => (
-            <Button
-              variant="ghost"
-              size="sm"
-              class="px-1 text-xs"
-              title={`${offer.name}:`}
-              onClick={() => props.onAdd(offer.name)}
-            >
-              {t("compose.addNamedTag", { name: offer.label() })}
-            </Button>
-          )}
-        </For>
-      </div>
-    </div>
-  )
-}
-
-/**
- * The symbol that will be written, shown where it will be written.
- *
- * Not put into the box: what is in the box is what was typed, and a symbol
- * standing in there would have to be deleted before a different one could be
- * typed. It leaves as soon as the figure names a commodity of its own, which is
- * how the box says that what was typed has taken the default's place.
- */
-function Ghost(props: { of: DefaultCommodity }): JSX.Element {
-  return (
-    <span
-      aria-hidden="true"
-      class="pointer-events-none absolute inset-y-0 flex items-center px-3 font-mono text-sm text-muted-foreground/60"
-      classList={{ "left-0": props.of.side === "left", "right-0": props.of.side === "right" }}
-    >
-      {props.of.symbol}
-    </span>
-  )
-}
-
-/**
- * Room kept for the symbol whether or not it is showing.
- *
- * Reserved from the moment the journal declares one, so that typing a symbol of
- * your own — which is what takes the ghost away — leaves the figure where it
- * was instead of jumping it across the box.
- */
-const roomForSymbol = (declared: DefaultCommodity | undefined): JSX.CSSProperties =>
-  declared === undefined
-    ? {}
-    : { [`padding-${declared.side}`]: `calc(${declared.symbol.length}ch + 1.25rem)` }
-
-/** A posting with no figure is what tells hledger to work the last one out. */
-const hasBlankAmount = (): boolean =>
-  draft().postings.some((posting) => posting.account.trim() !== "" && posting.amount.trim() === "")
-
-function Labelled(props: { label: string; children: JSX.Element }): JSX.Element {
-  return (
-    <TextField class="flex flex-col gap-1">
-      <span class="text-xs font-medium text-muted-foreground">{props.label}</span>
-      {props.children}
-    </TextField>
   )
 }

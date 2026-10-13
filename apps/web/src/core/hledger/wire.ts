@@ -44,7 +44,7 @@ export interface Posting {
   readonly pamount: MixedAmount
   readonly pcomment: string
   readonly pdate: string | null
-  readonly pstatus: string
+  readonly pstatus: Status
   /**
    * This posting's own tags, as hledger read them out of its comment.
    *
@@ -67,8 +67,18 @@ export interface SourcePos {
   readonly sourceColumn: number
 }
 
+/**
+ * A transaction's or a posting's status mark, as hledger's `Status` serialises.
+ *
+ * `Unmarked` is no mark at all. `Pending` is `!` and `Cleared` is `*` in the file.
+ */
+export type Status = "Unmarked" | "Pending" | "Cleared"
+
 export interface Transaction {
   readonly tindex: number
+  readonly tstatus: Status
+  /** The code in parentheses after the status, without them. Empty when there is none. */
+  readonly tcode: string
   /** Where the date starts, and where the last posting ends. */
   readonly tsourcepos: readonly [SourcePos, SourcePos]
   readonly tdate: string

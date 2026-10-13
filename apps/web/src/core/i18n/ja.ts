@@ -490,6 +490,18 @@ export const ja: Dictionary = {
     addPosting: "＋ 行を足す",
     willBeWritten: "書かれる内容",
     hledgerFillsTheRest: "金額を空けた行は hledger が埋めます。",
+    asText: "テキストで直す",
+    asForm: "フォームに戻す",
+    code: "コード",
+    codeHint: "小切手番号や参照番号（任意）",
+    entryStatus: "仕訳の状態",
+    postingStatus: "行の状態",
+    status: {
+      Unmarked: "未確認",
+      Pending: "保留 (!)",
+      Cleared: "確認済 (*)",
+    },
+    keptAsText: "この仕訳にはフォームでは保てない部分があるため、テキストのままです。",
     add: "帳簿に追加",
   },
   trouble: {

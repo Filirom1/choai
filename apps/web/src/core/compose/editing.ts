@@ -1,48 +1,57 @@
 import { createSignal, type Accessor } from "solid-js"
 
 import type { Transaction, Trouble } from "~/core/hledger/wire"
-import { journal } from "~/core/journal/store"
+import { declaredCommodity, journal } from "~/core/journal/store"
 import { spanOf, textAt, type Span } from "~/core/journal/lines"
 import { None, Some, getOrUndefined, type Option } from "~/core/lib/monad"
 import { commitEntry } from "./commit"
+import type { DraftEdit } from "./draft"
+import { asText, applySurfaceEdit, toForm, toText, type Surface } from "./surface"
 import { dock } from "~/core/dock"
 
 /**
  * Editing an entry that is already written.
  *
- * The row on screen is a rendering of a few lines of a file, and this opens
- * exactly those lines — not a form built from what hledger parsed. Handing back
- * a form would mean writing the entry out again from its parts, and everything
- * the parts do not carry, from the alignment to a comment on the third posting,
- * would be lost in the round trip.
+ * The lines of the entry are the thing opened, never a form built from what
+ * hledger parsed: a form would be written again from its parts, and what the
+ * parts do not carry — a status mark, a comment on the third posting — would be
+ * lost in the round trip. So the entry opens as the form that is the same entry,
+ * and only where the form would write those lines back unchanged. Otherwise it
+ * opens as the text, which is the lines themselves.
  *
  * What is saved is the file with those lines replaced, offered to hledger first.
  */
 
 const [where, setWhere] = createSignal<Span | undefined>(undefined)
-const [text, setText] = createSignal("")
+const [shown, setShown] = createSignal<Surface>(asText(""))
 const [trouble, setTrouble] = createSignal<Option<Trouble>>(None)
 const [saving, setSaving] = createSignal(false)
 
 /** The entry being edited, if any: which file, and which lines of it. */
 export const editing: Accessor<Span | undefined> = where
 
-/** The lines themselves, as they are being edited. */
-export const entryDraft: Accessor<string> = text
+/** The entry as it is being edited: its form, or the text it is written as. */
+export const editingShown: Accessor<Surface> = shown
 
 export const entryTrouble: Accessor<Option<Trouble>> = trouble
 export const entrySaving: Accessor<boolean> = saving
 
-/** Open the lines a transaction came from. Does nothing if its file is not open. */
+/**
+ * Open the lines a transaction came from. Does nothing if its file is not open.
+ *
+ * The form is offered when the entry, as hledger parsed it, would be written
+ * back as these same lines. The text is what the form cannot be trusted to keep.
+ */
 export const startEditingEntry = (transaction: Transaction): void => {
   const open = getOrUndefined(journal())
   if (open === undefined) return
   const span = spanOf(transaction.tsourcepos)
   const file = open.source.files[span.path]
   if (file === undefined) return
+  const lines = textAt(file, span)
   dock.show("editing")
   setWhere(span)
-  setText(textAt(file, span))
+  setShown(toForm(asText(lines), declaredCommodity()))
   setTrouble(None)
 }
 
@@ -66,7 +75,22 @@ export const stopEditingEntry = (): void => {
 }
 
 export const editEntry = (written: string): void => {
-  setText(written)
+  setShown(asText(written))
+}
+
+/** Change the form of the entry being edited. Ignored while it is shown as text. */
+export const editEntryDraft = (edit: DraftEdit): void => {
+  setShown((was) => applySurfaceEdit(was, edit))
+}
+
+/** Show the entry being edited as the text it will be written as. */
+export const showEditAsText = (): void => {
+  setShown((was) => toText(was, declaredCommodity()))
+}
+
+/** Show the entry being edited as its form, if the text reads back as one. */
+export const showEditAsForm = (): void => {
+  setShown((was) => toForm(was, declaredCommodity()))
 }
 
 /**
