@@ -1,4 +1,4 @@
-import type { Dictionary } from "./en"
+import { en, type Dictionary } from "./en"
 
 /** Japanese. Typed against the English dictionary, so a missing key will not compile. */
 export const ja: Dictionary = {
@@ -60,6 +60,7 @@ export const ja: Dictionary = {
     back: "一覧に戻る",
   },
   journal: {
+    ...en.journal,
     queryPlaceholder: "hledger クエリ 例: acct:食費 date:2026-02",
     search: "検索で帳簿を絞り込む",
     transactionCount: "{{ count }} 件",
@@ -70,6 +71,12 @@ export const ja: Dictionary = {
     print: "印刷",
     newer: "新しい方へ",
     older: "古い方へ",
+    attachments: "書類 {{ count }} 件",
+    documentPresent: "証憑書類あり",
+    documentMissing: "証憑書類なし",
+    closeRecord: "閉じる",
+    attachmentLoading: "読み込み中…",
+    editRecord: "記帳を編集",
   },
   reconcile: {
     title: "銀行照合",
@@ -161,6 +168,7 @@ export const ja: Dictionary = {
     worthALook: "要確認",
     taken: "これは帳簿から取り除かれます。",
     added: "{{ path }} に追記されます。",
+    document: "領収書の写真を証憑として添付します: {{ path }}",
     doesNotRead: "このままでは hledger が読めないため、どれも帳簿に入れられません。",
     keep: "{{ count }} 件を帳簿に追加",
     onlySure: "自信のある分だけ選ぶ",
@@ -258,6 +266,7 @@ export const ja: Dictionary = {
       "no-date": "仕訳の日付にする日付が見つかりません。",
       "no-issuer": "店名が見つかりません。",
       "no-account": "両方の勘定科目を選んでください。",
+      "document-settings-invalid": "この領収書を提案する前に、証憑書類の設定を修正してください。",
     },
     why: {
       unread: "写真から読み取ったものです。紙と照らし合わせてください。",
@@ -334,10 +343,16 @@ export const ja: Dictionary = {
     docs: "choai について",
   },
   settings: {
+    ...en.settings,
     language: "言語",
     languageHint: "ここで選ばないかぎり、ブラウザの言語に従います。",
     appearance: "外観",
     appearanceHint: "自動にすると端末に従います。夜になると暗くなる設定も、そのまま反映されます。",
+    documents: "書類",
+    documentTag: "帳簿のタグ名",
+    documentFolder: "帳簿内のフォルダー",
+    documentsHint: "書類の相対パスをこのタグに記録します。保存・送信・書き出し時にフォルダーを作成します。",
+    documentsInvalid: "シンプルなタグ名と、空・.・.. を含まない相対フォルダーを指定してください。",
     scheme: {
       system: "自動",
       light: "ライト",
@@ -577,6 +592,20 @@ export const ja: Dictionary = {
     hledgerFillsTheRest: "金額を空けた行は hledger が埋めます。",
     asText: "テキストで直す",
     asForm: "フォームに戻す",
+    document: "証憑書類",
+    chooseDocument: "ファイル",
+    takePhoto: "写真",
+    chooseExistingDocument: "取込済み",
+    searchExistingDocuments: "アップロード済みファイルを検索",
+    existingDocumentsCount: "{{ total }} 件中 {{ shown }} 件を表示",
+    noExistingDocuments: "一致するファイルはありません。",
+    moreExistingDocuments: "さらに表示",
+    linkDocument: "このファイルを紐付ける",
+    replaceDocument: "ファイル変更",
+    removeDocument: "リンクを外す",
+    noDocument: "書類は選択されていません",
+    pendingDocument: "保存時に {{ name }} を添付します。",
+    documentName: "ファイル名",
     code: "コード",
     codeHint: "小切手番号や参照番号（任意）",
     entryStatus: "仕訳の状態",

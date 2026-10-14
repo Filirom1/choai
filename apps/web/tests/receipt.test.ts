@@ -324,6 +324,18 @@ describe("the entry a receipt becomes", () => {
     expect(item.draft.tags).toEqual([])
   })
 
+  test("keeps the read photograph as the entry's supporting document", async () => {
+    const { receipt } = await reading(SUPERMARKET)
+    const file = new File(["photo"], "receipt.jpg", { type: "image/jpeg" })
+    const item = draftOf(receiptItem(receipt, into, undefined, {
+      path: "justificatifs/receipt.jpg",
+      file,
+      tag: { name: "evidence", value: "justificatifs/receipt.jpg" },
+    }))
+    expect(item.draft.tags).toContainEqual({ name: "evidence", value: "justificatifs/receipt.jpg" })
+    expect(item.document).toEqual({ path: "justificatifs/receipt.jpg", file })
+  })
+
   test("says what the paper says of itself: its number, and that it qualifies where it does", async () => {
     const { receipt, interpretation } = await reading(SUPERMARKET)
     expect(draftOf(receiptItem(receipt, into, interpretation)).draft.tags).toEqual([

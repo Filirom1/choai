@@ -4,12 +4,14 @@ import { ask } from "~/core/hledger/client"
 import { formatMixed } from "~/core/hledger/amount"
 import type { Posting, Transaction } from "~/core/hledger/wire"
 import { journal } from "~/core/journal/store"
+import { documentPathOn, documents } from "~/core/journal/documents"
 import { byDay, weekdayOf } from "~/core/journal/days"
 import { withoutKindNow } from "~/core/journal/chart"
 import { usePage, useQuery } from "~/core/journal/query"
 import { PAGE, offsetOf } from "~/core/journal/paging"
 import { getOrUndefined, matchResource } from "~/core/lib/monad"
 import { Button } from "~/core/components/ui/button"
+import { PaperclipIcon } from "~/core/lib/ui/icons"
 import { startEditingEntry } from "~/core/compose/editing"
 import { TroubleNote } from "~/core/components/trouble-note"
 import { Welcome } from "~/core/components/welcome"
@@ -121,8 +123,8 @@ const headingOf = (date: string): string => {
  * One entry, and the way into its text.
  *
  * The card is what hledger made of a few lines of a file, so pressing it opens
- * those lines. Reachable from the keyboard as well: a card that does something
- * has to be something you can get to without a pointer.
+ * the entry and its supporting papers. Reachable from the keyboard as well: a
+ * card that does something has to be something you can get to without a pointer.
  */
 function EntryCard(props: { transaction: Transaction }): JSX.Element {
   const open = (): void => startEditingEntry(props.transaction)
@@ -139,7 +141,14 @@ function EntryCard(props: { transaction: Transaction }): JSX.Element {
         }
       }}
     >
-      <span class="truncate font-medium">{props.transaction.tdescription}</span>
+      <div class="flex items-center justify-between gap-2">
+        <span class="truncate font-medium">{props.transaction.tdescription}</span>
+        <Show when={documentPathOn(props.transaction.ttags, documents().tag) !== undefined}>
+          <span class="text-primary" title={t("journal.documentPresent")}>
+            <PaperclipIcon class="h-4 w-4" />
+          </span>
+        </Show>
+      </div>
       <div class="pl-4">
         <For each={props.transaction.tpostings}>{(posting) => <PostingLine posting={posting} />}</For>
       </div>

@@ -36,6 +36,8 @@ export type Item = {
   | {
       readonly is: "add"
       readonly draft: Draft
+      /** The supporting image, kept with the entry when this item is applied. */
+      readonly document?: { readonly path: string; readonly file: File }
       /**
        * The file it is written into: the transactions, unless it is an entry
        * that belongs with others of its kind — a closing's adjustments. A path
@@ -502,8 +504,12 @@ export const apply = async (
     return Err({ at: "stale-proposal", id })
   }
 
+  const documents = chosen(proposal, how.only).flatMap((item) =>
+    item.is === "add" && item.document !== undefined ? [item.document] : [],
+  )
   const written = await putFiles(
     filesOf(proposal, open.source.files, entryPath(open), open.summary.defaultCommodity, how),
+    documents,
   )
   if (!written.ok) return Err({ at: "hledger", trouble: written.error })
 

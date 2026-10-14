@@ -131,6 +131,26 @@ export const withTag = (entry: string, where: Where, tag: Tag): string | undefin
   return under(lines, through(lines, at), tag).join("\n")
 }
 
+/** Remove one tag while leaving the entry's other comments and lines in place. */
+export const withoutTag = (entry: string, where: Where, name: string): string | undefined => {
+  if (name.trim() === "") return entry
+
+  const lines = entry.split("\n")
+  const at = lineFor(lines, where)
+  if (at === undefined) return undefined
+
+  const escaped = name.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  const pattern = new RegExp(`(^|[;#,]\\s*)${escaped}\\s*:[^,]*(?:,\\s*)?`)
+  const standing = through(lines, at).find((line) => pattern.test(lines[line] ?? ""))
+  if (standing === undefined) return entry
+
+  return lines
+    .map((line, index) => index === standing
+      ? line.replace(pattern, (_match, prefix: string) => prefix.startsWith(",") ? "" : prefix)
+      : line)
+    .join("\n")
+}
+
 /** The same, for several tags at once, each written the same way. */
 export const withTags = (
   entry: string,

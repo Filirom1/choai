@@ -1,6 +1,6 @@
 import { describe, expect, spyOn, test } from "bun:test"
 
-import { listFilesInFolder, listSharedWithMe, listStarred, multipartBody, updateFile } from "../src/core/google-drive/api"
+import { createBinary, listFilesInFolder, listSharedWithMe, listStarred, multipartBody, updateFile } from "../src/core/google-drive/api"
 import { changedFromAgreement, type DriveAgreement } from "../src/core/google-drive/kept"
 import { fileName, parentPath, relativePath, safePath } from "../src/core/google-drive/paths"
 
@@ -53,6 +53,26 @@ describe("Google Drive request bodies", () => {
     expect(body).toContain('{"name":"main.journal","parents":["folder"]}')
     expect(body).toContain("Content-Type: text/plain; charset=UTF-8\r\n\r\n2026-01-01 Opening\n")
     expect(body.endsWith("\r\n--boundary--")).toBe(true)
+  })
+
+  test("uploads binary companions with their MIME type and bytes", async () => {
+    const fetch = spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      id: "photo-file",
+      name: "receipt.jpg",
+      mimeType: "image/jpeg",
+    })))
+    const result = await createBinary("token", "folder-id", "receipt.jpg", new Blob([Uint8Array.of(1, 2, 255)], { type: "image/jpeg" }))
+    const [input, init] = fetch.mock.calls[0] ?? []
+    const headers = new Headers(init?.headers)
+    const body = init?.body
+    expect(result.ok).toBe(true)
+    expect(String(input)).toContain("/upload/drive/v3/files?uploadType=multipart")
+    expect(headers.get("Content-Type")).toContain("multipart/related; boundary=")
+    expect(body).toBeInstanceOf(Blob)
+    const text = await (body as Blob).text()
+    expect(text).toContain('"name":"receipt.jpg","mimeType":"image/jpeg","parents":["folder-id"]')
+    expect(text).toContain("Content-Type: image/jpeg\r\n\r\n")
+    fetch.mockRestore()
   })
 
   test("updates the same Drive file through the upload endpoint", async () => {

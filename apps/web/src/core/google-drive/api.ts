@@ -113,6 +113,30 @@ export const createFile = async (
   return json<DriveFile>(response.value)
 }
 
+export const createBinary = async (
+  token: string,
+  folderId: string,
+  name: string,
+  blob: Blob,
+): Promise<Result<DriveFile, Failure>> => {
+  const metadata = { name, mimeType: blob.type || "application/octet-stream", parents: [folderId] }
+  const boundary = `choai_${crypto.randomUUID()}`
+  const body = new Blob([
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: ${metadata.mimeType}\r\n\r\n`,
+    blob,
+    `\r\n--${boundary}--`,
+  ], { type: `multipart/related; boundary=${boundary}` })
+  const response = await call(`${UPLOAD}/files?uploadType=multipart&fields=id,name,mimeType,md5Checksum,modifiedTime,version,size,parents`, {
+    method: "POST",
+    headers: { ...authHeaders(token), "Content-Type": `multipart/related; boundary=${boundary}` },
+    body,
+  })
+  if (!response.ok) return response
+  if (response.value.status === 412) return Err({ kind: "conflict" })
+  if (!response.value.ok) return Err(failureOf(response.value))
+  return json<DriveFile>(response.value)
+}
+
 export const updateFile = async (
   token: string,
   fileId: string,

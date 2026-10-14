@@ -56,18 +56,22 @@ export function Tags(props: {
   onAdd: (name: string) => void
   onEdit: (index: number, change: Partial<Tag>) => void
   onRemove: (index: number) => void
+  hiddenNames?: readonly string[]
 }): JSX.Element {
+  const isHidden = (name: string): boolean => props.hiddenNames?.includes(name.trim()) ?? false
+  const visibleTags = (): readonly Tag[] => props.tags.filter((tag) => !isHidden(tag.name))
   const notYetWritten = (): readonly OfferedTag[] =>
-    props.offered.filter((offer) => !props.tags.some((tag) => tag.name.trim() === offer.name))
+    props.offered.filter((offer) => !isHidden(offer.name) && !props.tags.some((tag) => tag.name.trim() === offer.name))
 
   return (
     <div class="flex flex-col gap-1" classList={{ "pl-3": props.indented }}>
-      <Show when={props.tags.length > 0}>
+      <Show when={visibleTags().length > 0}>
         <span class="text-xs font-medium text-muted-foreground">{props.label}</span>
       </Show>
       <Index each={props.tags}>
         {(tag, index) => (
-          <div class="flex gap-1">
+          <Show when={!isHidden(tag().name)}>
+            <div class="flex gap-1">
             <TextField class="flex-1">
               <TextFieldInput
                 type="text"
@@ -107,7 +111,8 @@ export function Tags(props: {
             >
               <XIcon class="h-3 w-3" />
             </button>
-          </div>
+            </div>
+          </Show>
         )}
       </Index>
       <div class="flex flex-wrap gap-x-1">

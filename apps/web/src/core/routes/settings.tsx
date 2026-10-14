@@ -5,6 +5,12 @@ import { LOCALES, LOCALE_NAMES, locale, setLocale, t } from "~/core/i18n"
 import { Button } from "~/core/components/ui/button"
 import { pageOf } from "~/core/address/address"
 import { SCHEMES, scheme, setScheme } from "~/core/lib/theme"
+import { TextField, TextFieldInput } from "~/core/components/ui/text-field"
+import {
+  documents,
+  saveDocumentSettings,
+  validDocumentSettings,
+} from "~/core/journal/documents"
 
 /**
  * What this page is made of, in the order it is made of it.
@@ -24,6 +30,7 @@ export interface Section {
 export const SECTIONS: readonly Section[] = [
   { id: "language", name: () => t("settings.language") },
   { id: "appearance", name: () => t("settings.appearance") },
+  { id: "documents", name: () => t("settings.documents") },
 ]
 
 /**
@@ -92,6 +99,32 @@ export default function Settings(): JSX.Element {
           </For>
         </div>
         <p class="text-xs text-muted-foreground">{t("settings.appearanceHint")}</p>
+      </section>
+      <section id="documents" class="flex flex-col gap-2">
+        <h2 class="text-sm font-medium">{t("settings.documents")}</h2>
+        <label class="flex flex-col gap-1 text-sm">
+          {t("settings.documentTag")}
+          <TextField>
+            <TextFieldInput
+              value={documents().tag}
+              onInput={(event) => saveDocumentSettings({ ...documents(), tag: event.currentTarget.value })}
+            />
+          </TextField>
+        </label>
+        <label class="flex flex-col gap-1 text-sm">
+          {t("settings.documentFolder")}
+          <TextField>
+            <TextFieldInput
+              value={documents().folder}
+              onInput={(event) => saveDocumentSettings({ ...documents(), folder: event.currentTarget.value })}
+            />
+          </TextField>
+        </label>
+        <p class="text-xs text-muted-foreground">
+          {validDocumentSettings(documents())
+            ? t("settings.documentsHint")
+            : t("settings.documentsInvalid")}
+        </p>
       </section>
     </div>
   )

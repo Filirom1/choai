@@ -1,5 +1,6 @@
 import { Err, Ok, getOrUndefined, type Result } from "~/core/lib/monad"
-import { journal, openBringingMissing, registerAttachmentLoader, type Attachment, type OpenJournal } from "~/core/journal/store"
+import { journal, loadAttachment, openBringingMissing, registerAttachmentLoader, type Attachment, type OpenJournal } from "~/core/journal/store"
+import { documentPathsInFiles, documents } from "~/core/journal/documents"
 import { putAttachments } from "~/core/journal/kept"
 import type { GoogleDriveRemote } from "~/core/journal/remote"
 import type { Trouble } from "~/core/hledger/wire"
@@ -7,6 +8,7 @@ import { isGoogleDriveRemote } from "~/core/journal/remote"
 import { accessToken, sessionToken } from "./auth"
 import {
   FOLDER_MIME,
+  createBinary,
   createFile,
   createFolder,
   getFileBlob,
@@ -139,16 +141,6 @@ const take = async (
   const textFiles = listed.value.filter(({ file }) => isTextFile(file))
   const entry = textFiles.find(({ path }) => path === remote.path)
   if (entry === undefined) return Err({ at: "drive", failure: { kind: "no-such-file" } })
-  const attachmentFiles = listed.value.filter(({ file }) => mimeOf(file) !== undefined)
-  const previous = getOrUndefined(journal())
-  const localAttachments = previous?.bookId === bookId ? previous.source.attachments : []
-  const missingAttachment = localAttachments.find((attachment) => !attachmentFiles.some((item) => item.path === attachment.path))
-  if (missingAttachment !== undefined) return Err({ at: "local-changes", path: missingAttachment.path })
-  const attachments: readonly Attachment[] = attachmentFiles.map(({ path, file }) => ({
-    path,
-    type: mimeOf(file) ?? "application/octet-stream",
-    size: Number(file.size ?? 0),
-  }))
   const texts = await Promise.all(textFiles.map(async ({ path, file }) => {
     const body = await getFileContent(token, file.id)
     return body.ok ? Ok({ path, text: body.value, file } as const) : Err({ path, failure: body.error } as const)
@@ -156,7 +148,19 @@ const take = async (
   const failed = texts.find((text) => !text.ok)
   if (failed !== undefined && !failed.ok) return Err({ at: "drive", failure: failed.error.failure })
   const fetched = texts.flatMap((text) => text.ok ? [text.value] : [])
-  const fileTexts = Object.fromEntries(fetched.map(({ path, text }) => [path, text]))
+  const decoded = Object.fromEntries(fetched.map(({ path, text }) => [path, text]))
+  const linked = new Set(documentPathsInFiles(decoded, documents().tag))
+  const fileTexts = Object.fromEntries(Object.entries(decoded).filter(([path]) => !linked.has(path)))
+  const attachmentFiles = listed.value.filter(({ path, file }) => !isTextFile(file) || linked.has(path))
+  const attachments: readonly Attachment[] = attachmentFiles.map(({ path, file }) => ({
+    path,
+    type: mimeOf(file) ?? (file.mimeType || "application/octet-stream"),
+    size: Number(file.size ?? 0),
+  }))
+  const previous = getOrUndefined(journal())
+  const localAttachments = previous?.bookId === bookId ? previous.source.attachments : []
+  const missingAttachment = localAttachments.find((attachment) => !attachmentFiles.some((item) => item.path === attachment.path))
+  if (missingAttachment !== undefined) return Err({ at: "local-changes", path: missingAttachment.path })
   const opened = await openBringingMissing(
     { label, files: fileTexts, attachments, entry: `/${remote.path}` },
     async (path) => fileTexts[path],
@@ -165,7 +169,7 @@ const take = async (
   )
   if (!opened.ok) return Err({ at: "hledger", trouble: opened.error })
 
-  await Promise.all(fetched.map(({ path, text, file }) => agree(bookId, agreementOf(path, file, text))))
+  await Promise.all(fetched.filter(({ path }) => !linked.has(path)).map(({ path, text, file }) => agree(bookId, agreementOf(path, file, text))))
   registerAttachmentLoader(bookId, async (path) => {
     const located = attachmentFiles.find((item) => item.path === path)
     if (located === undefined) return undefined
@@ -235,7 +239,9 @@ export const push = async (): Promise<Result<Outcome, Snag>> => {
   const blocked = prepared.find((item) => !item.ok)
   if (blocked !== undefined && !blocked.ok) return blocked
 
-  const written: string[] = []
+  const attachments = await pushAttachments(token, remote, open, tree.value)
+  if (!attachments.ok) return attachments
+  const written: string[] = [...attachments.value]
   for (const item of prepared.flatMap((result) => result.ok ? [result.value] : [])) {
     const saved = item.current === undefined
       ? await createAtPath(token, remote.folderId, item.change.path, item.change.after)
@@ -245,6 +251,30 @@ export const push = async (): Promise<Result<Outcome, Snag>> => {
     written.push(item.change.path)
   }
   return Ok({ did: "pushed", files: written.length })
+}
+
+const pushAttachments = async (
+  token: string,
+  remote: GoogleDriveRemote,
+  open: OpenJournal,
+  tree: readonly LocatedFile[],
+): Promise<Result<readonly string[], Snag>> => {
+  const sent: string[] = []
+  for (const attachment of open.source.attachments) {
+    if (tree.some((item) => item.path === attachment.path)) continue
+    const blob = await loadAttachment(open.bookId, attachment.path)
+    if (blob === undefined) return Err({ at: "conflict", path: attachment.path })
+    const folder = await folderFor(token, remote.folderId, parentPath(attachment.path))
+    if (!folder.ok) return folder
+    const created = await createBinary(token, folder.value, fileName(attachment.path), blob)
+    if (!created.ok) {
+      return created.error.kind === "conflict"
+        ? Err({ at: "conflict", path: attachment.path })
+        : Err({ at: "drive", failure: created.error })
+    }
+    sent.push(attachment.path)
+  }
+  return Ok(sent)
 }
 
 const updateAgreedFile = async (

@@ -3,6 +3,7 @@ import { createSignal, type Accessor } from "solid-js"
 import type { Trouble } from "~/core/hledger/wire"
 import { None, Some, type Option } from "~/core/lib/monad"
 import { declaredCommodity } from "~/core/journal/store"
+import type { DocumentSelection } from "~/core/journal/documents"
 import { commitDraft, commitText } from "./commit"
 import { emptyDraft, todayISO, type DraftEdit } from "./draft"
 import {
@@ -24,6 +25,15 @@ import {
 const [surface, setSurface] = createSignal<Surface>(asForm(emptyDraft(todayISO())))
 const [trouble, setTrouble] = createSignal<Option<Trouble>>(None)
 const [saving, setSaving] = createSignal(false)
+const [documentFile, setDocumentFile] = createSignal<File | undefined>(undefined)
+const [documentPath, setDocumentPath] = createSignal<string | undefined>(undefined)
+
+export const entryDocumentFile: Accessor<File | undefined> = documentFile
+export const entryDocumentPath: Accessor<string | undefined> = documentPath
+export const chooseEntryDocument = (selection: DocumentSelection | undefined): void => {
+  setDocumentFile(selection?.kind === "file" ? selection.file : undefined)
+  setDocumentPath(selection?.kind === "existing" ? selection.path : undefined)
+}
 
 export const entryShown: Accessor<Surface> = surface
 export const savingTrouble: Accessor<Option<Trouble>> = trouble
@@ -61,7 +71,11 @@ export const save = async (): Promise<boolean> => {
   const current = surface()
   setSaving(true)
   setTrouble(None)
-  const result = current.shows === "text" ? await commitText(current.text) : await commitDraft(current.draft)
+  const file = documentFile()
+  const existingPath = documentPath()
+  const result = current.shows === "text"
+    ? await commitText(current.text, file, existingPath)
+    : await commitDraft(current.draft, file, existingPath)
   setSaving(false)
 
   if (!result.ok) {
@@ -70,11 +84,15 @@ export const save = async (): Promise<boolean> => {
   }
   const date = current.shows === "form" ? current.draft.date : todayISO()
   setSurface(asForm(emptyDraft(date)))
+  setDocumentFile(undefined)
+  setDocumentPath(undefined)
   return true
 }
 
 /** Start again with today's date, as if the panel had just been opened. */
 export const clearDraft = (): void => {
   setSurface(asForm(emptyDraft(todayISO())))
+  setDocumentFile(undefined)
+  setDocumentPath(undefined)
   setTrouble(None)
 }

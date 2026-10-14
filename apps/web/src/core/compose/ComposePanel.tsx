@@ -4,10 +4,25 @@ import { Button } from "~/core/components/ui/button"
 import { TroubleNote } from "~/core/components/trouble-note"
 import { getOrUndefined } from "~/core/lib/monad"
 import { declaredCommodity } from "~/core/journal/store"
+import { documents } from "~/core/journal/documents"
 import { t } from "~/core/i18n"
 import { EntryForm } from "./EntryForm"
+import { DocumentField } from "./DocumentField"
 import { EntryText } from "./EntryText"
-import { editDraft, editText, entryShown, save, saving, savingTrouble, showAsForm, showAsText, writable } from "./store"
+import {
+  chooseEntryDocument,
+  editDraft,
+  editText,
+  entryDocumentFile,
+  entryDocumentPath,
+  entryShown,
+  save,
+  saving,
+  savingTrouble,
+  showAsForm,
+  showAsText,
+  writable,
+} from "./store"
 import { canBeForm } from "./surface"
 import { emptyDraft, todayISO, type Draft } from "./draft"
 
@@ -32,7 +47,7 @@ export function ComposePanel(): JSX.Element {
 
   return (
     <div class="flex flex-col gap-3 p-3">
-      <Show when={isText()} fallback={<EntryForm draft={draftOf} onEdit={editDraft}>
+      <Show when={isText()} fallback={<EntryForm draft={draftOf} onEdit={editDraft} hiddenEntryTags={[documents().tag]}>
         <Button variant="ghost" size="sm" class="self-start px-1" onClick={showAsText}>
           {t("compose.asText")}
         </Button>
@@ -44,6 +59,8 @@ export function ComposePanel(): JSX.Element {
           keptAsText={!canBeForm(textOf(), declaredCommodity())}
         />
       </Show>
+
+      <DocumentField path={entryDocumentPath()} file={entryDocumentFile()} disabled={saving()} onSelect={chooseEntryDocument} />
 
       <Show when={getOrUndefined(savingTrouble())}>
         {(trouble) => <TroubleNote trouble={trouble()} />}

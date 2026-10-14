@@ -22,6 +22,8 @@ import { ghostOf } from "./commodity"
 export function EntryForm(props: {
   draft: Accessor<Draft>
   onEdit: (edit: DraftEdit) => void
+  /** Entry tags managed by a dedicated field rather than the generic tag list. */
+  hiddenEntryTags?: readonly string[]
   /** The text of the entry as the form would write it, shown underneath. */
   children?: JSX.Element
 }): JSX.Element {
@@ -106,6 +108,7 @@ export function EntryForm(props: {
         onAdd={(name) => props.onEdit({ kind: "entryTag", edit: { kind: "add", name } })}
         onEdit={(index, change) => props.onEdit({ kind: "entryTag", edit: { kind: "change", index, change } })}
         onRemove={(index) => props.onEdit({ kind: "entryTag", edit: { kind: "remove", index } })}
+        hiddenNames={props.hiddenEntryTags}
         label={t("compose.tags")}
       />
 

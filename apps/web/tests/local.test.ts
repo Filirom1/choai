@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { changedPaths, safeLocalPath, saveLocalFolder, type LocalFolder } from "~/core/journal/local"
 
 const folderWith = (contents: Readonly<Record<string, string>>, permission: PermissionState = "granted", failAt?: string) => {
-  const disk = new Map(Object.entries(contents))
+  const disk = new Map<string, string | Blob>(Object.entries(contents))
   const writes: string[] = []
   const directory = (prefix: string): FileSystemDirectoryHandle => ({
     kind: "directory",
@@ -16,10 +16,10 @@ const folderWith = (contents: Readonly<Record<string, string>>, permission: Perm
         getFile: async () => new File([disk.get(path) ?? ""], name),
         createWritable: async () => {
           if (path === failAt) return Promise.reject(new DOMException("Refused", "NotAllowedError"))
-          const pending = { text: "" }
+          const pending: { content: string | Blob } = { content: "" }
           return {
-            write: async (text: string) => { pending.text = text },
-            close: async () => { disk.set(path, pending.text); writes.push(path) },
+            write: async (content: string | Blob) => { pending.content = content },
+            close: async () => { disk.set(path, pending.content); writes.push(path) },
           }
         },
       }
@@ -62,6 +62,30 @@ describe("original folder", () => {
     }
   })
 
+  test("saves companions under their relative paths and will not replace a different file", async () => {
+    const folder = folderWith({ "main.journal": "a" })
+    const blob = new Blob([new Uint8Array([1, 2, 3])], { type: "image/jpeg" })
+    const result = await saveLocalFolder(
+      { handle: folder.handle, base: { "main.journal": "a" } },
+      { "main.journal": "a" },
+      undefined,
+      [{ path: "justificatifs/photo.jpg", blob }],
+    )
+    expect(result.ok).toBe(true)
+    expect(folder.writes).toEqual(["justificatifs/photo.jpg"])
+    const saved = folder.disk.get("justificatifs/photo.jpg")
+    expect(saved instanceof Blob ? await saved.arrayBuffer() : undefined).toEqual(await blob.arrayBuffer())
+
+    const conflict = folderWith({ "main.journal": "a", "justificatifs/photo.jpg": "different" })
+    expect(await saveLocalFolder(
+      { handle: conflict.handle, base: { "main.journal": "a" } },
+      { "main.journal": "a" },
+      undefined,
+      [{ path: "justificatifs/photo.jpg", blob }],
+    )).toEqual({ ok: false, error: { at: "changed", path: "justificatifs/photo.jpg" } })
+    expect(conflict.writes).toEqual([])
+  })
+
   test("permission refusal and unsafe paths write nothing", async () => {
     const folder = folderWith({ "main.journal": "a" }, "denied")
     expect(await saveLocalFolder({ handle: folder.handle, base: { "main.journal": "a" } }, { "main.journal": "b" })).toEqual({ ok: false, error: { at: "permission" } })
@@ -76,7 +100,7 @@ describe("original folder", () => {
     expect(result.ok).toBe(false)
     expect(folder.writes).toEqual(["main.journal"])
     expect(kept[0]?.base).toEqual({ "main.journal": "new", "accounts.journal": "b" })
-    const retry = folderWith(Object.fromEntries(folder.disk))
+    const retry = folderWith(Object.fromEntries([...folder.disk].filter((entry): entry is [string, string] => typeof entry[1] === "string")))
     const retried = await saveLocalFolder({ ...kept[0]!, handle: retry.handle }, { "main.journal": "new", "accounts.journal": "new" })
     expect(retried.ok).toBe(true)
     expect(retry.writes).toEqual(["accounts.journal"])

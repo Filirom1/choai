@@ -115,6 +115,33 @@ export const fetchFile = async (token: string, where: Where): Promise<Result<Fet
  * should not exist yet". Either way, GitHub refuses rather than overwrites when
  * the remote has moved on, which is the answer we want.
  */
+export const putBinary = async (
+  token: string,
+  where: Where,
+  blob: Blob,
+  sha: string | undefined,
+  message: string,
+): Promise<Result<string, Failure>> => {
+  const answer = await call(url({ ...where, branch: "" }), {
+    method: "PUT",
+    headers: { ...headers(token), "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message,
+      content: encodeBytes(new Uint8Array(await blob.arrayBuffer())),
+      sha,
+      branch: where.branch === "" ? undefined : where.branch,
+    }),
+  })
+  if (!answer.ok) return answer
+  const response = answer.value
+  if (!response.ok) return Err(await failureOf(response))
+  const body = (await response.json()) as { content?: { sha?: string } }
+  const written = body.content?.sha
+  return typeof written === "string"
+    ? Ok(written)
+    : Err({ kind: "refused", status: response.status, detail: "no sha came back" })
+}
+
 export const putFile = async (
   token: string,
   where: Where,
@@ -326,9 +353,11 @@ const bytesOf = (base64: string): Uint8Array => {
 
 const decode = (base64: string): string => new TextDecoder().decode(bytesOf(base64))
 
-const encode = (text: string): string => {
-  const bytes = new TextEncoder().encode(text)
-  let binary = ""
-  for (const byte of bytes) binary += String.fromCharCode(byte)
-  return btoa(binary)
+const encode = (text: string): string => encodeBytes(new TextEncoder().encode(text))
+
+const encodeBytes = (bytes: Uint8Array): string => {
+  const chunks = Array.from({ length: Math.ceil(bytes.length / 0x8000) }, (_, at) =>
+    String.fromCharCode(...bytes.subarray(at * 0x8000, (at + 1) * 0x8000)),
+  )
+  return btoa(chunks.join(""))
 }

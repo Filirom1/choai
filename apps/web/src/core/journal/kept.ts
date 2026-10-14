@@ -135,7 +135,10 @@ export const bookWithFiles = async (id: string): Promise<KeptBook | undefined> =
  * files of two different versions of a journal together would not read. Only
  * this book's files are cleared — another book's are none of its business.
  */
-export const keepBook = async (book: KeptBook): Promise<void> => {
+export const keepBook = async (
+  book: KeptBook,
+  incoming: readonly { readonly path: string; readonly blob: Blob }[] = [],
+): Promise<void> => {
   askToKeep()
   const now = Date.now()
   await within("readwrite", [BOOKS, FILES, ATTACHMENTS], (transaction) => {
@@ -143,12 +146,25 @@ export const keepBook = async (book: KeptBook): Promise<void> => {
     transaction.objectStore(BOOKS).put(card)
     const files = transaction.objectStore(FILES)
     files.delete(filesOf(book.id))
-    transaction.objectStore(ATTACHMENTS).delete(filesOf(book.id))
+    const attachments = transaction.objectStore(ATTACHMENTS)
+    const keptAttachments = attachments.getAll(filesOf(book.id)) as IDBRequest<AttachmentRow[]>
+    keptAttachments.onsuccess = () => {
+      const old = rowsOf(keptAttachments)
+      const wanted = new Set(book.attachments.map(({ path }) => path))
+      const added = new Map(incoming.map(({ path, blob }) => [path, blob]))
+      old.filter(({ path }) => !wanted.has(path)).forEach(({ path }) => attachments.delete([book.id, path]))
+      for (const attachment of book.attachments) {
+        const blob = added.get(attachment.path) ?? old.find((one) => one.path === attachment.path)?.blob
+        attachments.put({
+          ...attachment,
+          book: book.id,
+          updatedAt: now,
+          ...(blob === undefined ? {} : { blob }),
+        })
+      }
+    }
     for (const [path, text] of Object.entries(book.files)) {
       files.put({ book: book.id, path, text, updatedAt: now })
-    }
-    for (const attachment of book.attachments) {
-      transaction.objectStore(ATTACHMENTS).put({ ...attachment, book: book.id, updatedAt: now })
     }
   })
 }
@@ -196,6 +212,12 @@ export const putAttachments = async (book: string, attachments: readonly (Attach
   await within("readwrite", [ATTACHMENTS], (transaction) => {
     const store = transaction.objectStore(ATTACHMENTS)
     for (const attachment of attachments) store.put({ ...attachment, book, updatedAt: Date.now() })
+  })
+}
+
+export const forgetAttachment = async (book: string, path: string): Promise<void> => {
+  await within("readwrite", [ATTACHMENTS], (transaction) => {
+    transaction.objectStore(ATTACHMENTS).delete([book, path])
   })
 }
 

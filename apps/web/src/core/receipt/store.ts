@@ -26,6 +26,7 @@ export type Status =
 export interface Card {
   readonly id: string
   readonly name: string
+  readonly picture: File
   /** For showing the photograph beside what was read off it; revoked when the card goes. */
   readonly url: string
   readonly status: Accessor<Status>
@@ -37,7 +38,6 @@ export interface Card {
 }
 
 interface Kept extends Card {
-  readonly picture: Blob
   readonly setStatus: (next: Status) => void
 }
 

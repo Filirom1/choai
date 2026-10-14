@@ -55,13 +55,15 @@ export const saveLocalFolder = async (
   folder: LocalFolder,
   files: Readonly<Record<string, string>>,
   written: (folder: LocalFolder) => Promise<void> = async () => undefined,
+  companions: readonly { readonly path: string; readonly blob: Blob }[] = [],
 ): Promise<Result<LocalFolder, LocalFailure>> => {
   const paths = changedPaths(folder.base, files)
-  const unsafe = [...Object.keys(folder.base), ...Object.keys(files)].find((path) => !safeLocalPath(path))
+  const unsafe = [...Object.keys(folder.base), ...Object.keys(files), ...companions.map(({ path }) => path)]
+    .find((path) => !safeLocalPath(path))
   if (unsafe !== undefined) return Err({ at: "unsafe-path", path: unsafe })
   const allowed = await permitLocalFolder(folder)
   if (!allowed.ok) return allowed
-  return writeCheckedPaths(folder, files, paths, written)
+  return writeCheckedPaths(folder, files, paths, written, companions)
 }
 
 const checkPaths = async (folder: LocalFolder, paths: readonly string[]): Promise<Result<void, LocalFailure>> => {
@@ -77,10 +79,55 @@ const writeCheckedPaths = async (
   files: Readonly<Record<string, string>>,
   paths: readonly string[],
   written: (folder: LocalFolder) => Promise<void>,
+  companions: readonly { readonly path: string; readonly blob: Blob }[],
 ): Promise<Result<LocalFolder, LocalFailure>> => {
   const checked = await checkPaths(folder, [...new Set([...Object.keys(folder.base), ...Object.keys(files)])])
   if (!checked.ok) return checked
+  const missing = await missingCompanions(folder.handle, companions)
+  if (!missing.ok) return missing
+  const saved = await writeCompanions(folder.handle, missing.value)
+  if (!saved.ok) return saved
   return writePaths(folder, files, paths, written)
+}
+
+const missingCompanions = async (
+  folder: FileSystemDirectoryHandle,
+  companions: readonly { readonly path: string; readonly blob: Blob }[],
+): Promise<Result<readonly { readonly path: string; readonly blob: Blob }[], LocalFailure>> => {
+  const [one, ...rest] = companions
+  if (one === undefined) return Ok([])
+  try {
+    const existing = await (await fileAt(folder, one.path.split("/"), false)).getFile()
+    const same = await bytesEqual(existing, one.blob)
+    return same ? missingCompanions(folder, rest) : Err({ at: "changed", path: one.path })
+  } catch (cause) {
+    return cause instanceof DOMException && cause.name === "NotFoundError"
+      ? missingCompanions(folder, rest).then((later) => later.ok ? Ok([one, ...later.value]) : later)
+      : Err({ at: "filesystem", cause })
+  }
+}
+
+const bytesEqual = async (one: Blob, other: Blob): Promise<boolean> => {
+  if (one.size !== other.size) return false
+  const [left, right] = await Promise.all([one.arrayBuffer(), other.arrayBuffer()])
+  const expected = new Uint8Array(right)
+  return new Uint8Array(left).every((byte, at) => byte === expected[at])
+}
+
+const writeCompanions = async (
+  folder: FileSystemDirectoryHandle,
+  companions: readonly { readonly path: string; readonly blob: Blob }[],
+): Promise<Result<void, LocalFailure>> => {
+  const [one, ...rest] = companions
+  if (one === undefined) return Ok(undefined)
+  try {
+    const writable = await (await fileAt(folder, one.path.split("/"), true)).createWritable()
+    await writable.write(one.blob)
+    await writable.close()
+    return writeCompanions(folder, rest)
+  } catch (cause) {
+    return Err({ at: "filesystem", cause })
+  }
 }
 
 const writePaths = async (

@@ -1,9 +1,11 @@
 import { Err, Ok, getOrUndefined, type Result } from "~/core/lib/monad"
-import { journal, openBringingMissing, registerAttachmentLoader, rewriteFile, type Attachment, type OpenJournal } from "~/core/journal/store"
+import { journal, loadAttachment, openBringingMissing, registerAttachmentLoader, rewriteFile, type Attachment, type OpenJournal } from "~/core/journal/store"
+import { companionsIn } from "~/core/journal/companions"
+import { documentPathsInFiles, documents } from "~/core/journal/documents"
 import { putAttachments, type GitHubRemote } from "~/core/journal/kept"
 import { isGitHubRemote } from "~/core/journal/remote"
 import type { Trouble } from "~/core/hledger/wire"
-import { fetchBinary, fetchFile, putFile, repositoryFiles, type Failure, type Where } from "./api"
+import { fetchBinary, fetchFile, putBinary, putFile, repositoryFiles, type Failure, type Where } from "./api"
 import { agree, agreedOn, token, type Agreed } from "./kept"
 
 /**
@@ -103,12 +105,17 @@ const take = async (
   const paths = tree.value.filter((path) => path === remote.path || path.startsWith(directory))
   if (!paths.includes(remote.path)) return Err({ at: "github", failure: { kind: "no-such-file" } })
 
-  const brought = new Map<string, { text: string; sha: string; repoPath: string }>()
   const relative = (path: string): string => path.slice(directory.length)
-  const binary = (path: string): boolean => /\.(pdf|png|jpe?g|gif|webp|bmp)$/i.test(path)
-  const attachmentPaths = paths.filter(binary)
-  const attachments: readonly Attachment[] = attachmentPaths.map((path) => ({ path: relative(path), type: mimeOf(path), size: 0 }))
-  const fetched = await Promise.all(paths.filter((path) => !binary(path)).map(async (repoPath) => {
+  const root = await fetchFile(key, where(remote, remote.path))
+  if (!root.ok) return Err({ at: "github", failure: root.error })
+  const declared = new Set(companionsIn(root.value.text))
+  const binary = (path: string): boolean =>
+    /\.(pdf|png|jpe?g|gif|webp|bmp)$/i.test(path) ||
+    (declared.has(relative(path)) && !/\.(journal|hledger|ledger|json|jsonl|csv|rules|txt|md|yaml|yml|xml)$/i.test(path))
+  const fetched = await Promise.all(paths.filter((path) => path === remote.path || !binary(path)).map(async (repoPath) => {
+    if (repoPath === remote.path) {
+      return { kind: "text" as const, path: relative(repoPath), repoPath, text: root.value.text, sha: root.value.sha }
+    }
     const file = await fetchFile(key, where(remote, repoPath))
     return file.ok
       ? { kind: "text" as const, path: relative(repoPath), repoPath, text: file.value.text, sha: file.value.sha }
@@ -116,9 +123,14 @@ const take = async (
   }))
   const failure = fetched.find((file) => file.kind === "failure")
   if (failure?.kind === "failure") return Err({ at: "github", failure: failure.error })
+  const brought = new Map<string, { text: string; sha: string; repoPath: string }>()
   fetched.forEach((file) => {
     if (file.kind === "text") brought.set(file.path, { text: file.text, sha: file.sha, repoPath: file.repoPath })
   })
+  const linked = new Set(documentPathsInFiles(Object.fromEntries([...brought].map(([path, file]) => [path, file.text])), documents().tag))
+  const attachmentPaths = paths.filter((path) => binary(path) || linked.has(relative(path)))
+  attachmentPaths.forEach((path) => brought.delete(relative(path)))
+  const attachments: readonly Attachment[] = attachmentPaths.map((path) => ({ path: relative(path), type: mimeOf(path), size: 0 }))
 
   const opened = await openBringingMissing(
     {
@@ -141,8 +153,9 @@ const take = async (
     const file = await fetchBinary(key, where(remote, repoPath))
     if (!file.ok) return undefined
     const metadata = attachments.find((attachment) => attachment.path === path)
-    if (metadata !== undefined) await putAttachments(into, [{ ...metadata, blob: file.value.blob }])
-    return file.value.blob
+    const blob = new Blob([file.value.blob], { type: metadata?.type ?? "application/octet-stream" })
+    if (metadata !== undefined) await putAttachments(into, [{ ...metadata, blob }])
+    return blob
   })
 
   await Promise.all(
@@ -235,7 +248,11 @@ export const push = async (message?: string): Promise<Result<Outcome, Snag>> => 
   const remote = reach.value.remote
 
   const changed = await changedFiles(open.bookId, open.source.files)
-  if (changed.length === 0) return Ok({ did: "nothing" })
+  const tree = await repositoryFiles(key, { owner: remote.owner, repo: remote.repo }, remote.branch || "HEAD")
+  if (!tree.ok) return Err({ at: "github", failure: tree.error })
+  const attachments = await pushAttachments(key, remote, open, tree.value, message)
+  if (!attachments.ok) return attachments
+  if (changed.length === 0 && attachments.value.length === 0) return Ok({ did: "nothing" })
 
   const results = []
   for (const file of changed) {
@@ -244,7 +261,28 @@ export const push = async (message?: string): Promise<Result<Outcome, Snag>> => 
     results.push(result.value)
   }
   const merged = results.some((each) => each === "merged")
-  return Ok({ did: merged ? "merged" : "pushed", files: changed.length })
+  return Ok({ did: merged ? "merged" : "pushed", files: changed.length + attachments.value.length })
+}
+
+const pushAttachments = async (
+  key: string,
+  remote: GitHubRemote,
+  open: OpenJournal,
+  tree: readonly string[],
+  message: string | undefined,
+): Promise<Result<readonly string[], Snag>> => {
+  const directory = directoryOf(remote.path)
+  const sent: string[] = []
+  for (const attachment of open.source.attachments) {
+    const repoPath = `${directory}${attachment.path}`
+    if (tree.includes(repoPath)) continue
+    const blob = await loadAttachment(open.bookId, attachment.path)
+    if (blob === undefined) return Err({ at: "github", failure: { kind: "refused", status: 0, detail: `Missing companion ${attachment.path}` } })
+    const written = await putBinary(key, where(remote, repoPath), blob, undefined, message ?? `Add ${repoPath}`)
+    if (!written.ok) return Err({ at: "github", failure: written.error })
+    sent.push(attachment.path)
+  }
+  return Ok(sent)
 }
 
 /**

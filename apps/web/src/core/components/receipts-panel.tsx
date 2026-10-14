@@ -7,7 +7,9 @@ import { t } from "~/core/i18n"
 import { placingsNow } from "~/core/journal/chart"
 import { propose, type Item } from "~/core/journal/proposals"
 import { journal } from "~/core/journal/store"
+import { documents, pathForReceipt, tagForDocument, validDocumentSettings } from "~/core/journal/documents"
 import { createCamera, type Camera, type CameraRefusal, type StillTrouble } from "~/core/lib/camera"
+import { compactImage } from "~/core/lib/image"
 import { getOrUndefined } from "~/core/lib/monad"
 import { XIcon } from "~/core/lib/ui/icons"
 import { candidatesIn, type Picked } from "~/core/receipt/accounts"
@@ -67,13 +69,13 @@ export function ReceiptsPanel(): JSX.Element {
           <PicturePicker
             label={t("receipts.choose")}
             enabled={askable()}
-            onPicked={(files) => readAll(files, candidates)}
+            onPicked={(files) => void Promise.all(files.map(compactImage)).then((compact) => readAll(compact, candidates))}
           />
           <PicturePicker
             label={t("receipts.shoot")}
             enabled={askable()}
             camera
-            onPicked={(files) => readAll(files, candidates)}
+            onPicked={(files) => void Promise.all(files.map(compactImage)).then((compact) => readAll(compact, candidates))}
           />
           <Show when={camera.present() === true && camera.state().is === "closed"}>
             <button
@@ -230,6 +232,9 @@ const pickedAs = (typed: string, suggested: Picked | undefined): Picked | undefi
 const itemOf = (card: Card): { readonly item?: Item; readonly refused?: Unproposed } => {
   const status = card.status()
   if (status.is !== "read") return {}
+  const settings = documents()
+  if (!validDocumentSettings(settings)) return { refused: { is: "document-settings-invalid" } }
+  const path = pathForReceipt(card.picture, card.id, settings)
   const made = receiptItem(
     status.read.receipt,
     {
@@ -237,6 +242,7 @@ const itemOf = (card: Card): { readonly item?: Item; readonly refused?: Unpropos
       paidFrom: pickedAs(card.paidFrom(), status.read.accounts.paidFrom),
     },
     status.read.interpretation,
+    { path, file: card.picture, tag: tagForDocument(settings.tag, path) },
   )
   if (!made.ok) return { refused: made.error }
   const why = made.value.doubt === undefined ? undefined : t(`receipts.why.${made.value.doubt}`)

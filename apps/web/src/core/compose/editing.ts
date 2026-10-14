@@ -8,6 +8,7 @@ import { commitEntry } from "./commit"
 import type { DraftEdit } from "./draft"
 import { asText, applySurfaceEdit, toForm, toText, type Surface } from "./surface"
 import { dock } from "~/core/dock"
+import { documentPathOn, documents, type DocumentSelection } from "~/core/journal/documents"
 
 /**
  * Editing an entry that is already written.
@@ -26,6 +27,18 @@ const [where, setWhere] = createSignal<Span | undefined>(undefined)
 const [shown, setShown] = createSignal<Surface>(asText(""))
 const [trouble, setTrouble] = createSignal<Option<Trouble>>(None)
 const [saving, setSaving] = createSignal(false)
+const [documentPath, setDocumentPath] = createSignal<string | undefined>(undefined)
+const [originalDocumentPath, setOriginalDocumentPath] = createSignal<string | undefined>(undefined)
+const [documentFile, setDocumentFile] = createSignal<File | undefined>(undefined)
+const [documentRemoved, setDocumentRemoved] = createSignal(false)
+
+export const editingDocumentPath: Accessor<string | undefined> = () => documentRemoved() ? undefined : documentPath()
+export const editingDocumentFile: Accessor<File | undefined> = documentFile
+export const chooseEditingDocument = (selection: DocumentSelection | undefined): void => {
+  setDocumentFile(selection?.kind === "file" ? selection.file : undefined)
+  setDocumentPath(selection?.kind === "existing" ? selection.path : undefined)
+  setDocumentRemoved(selection === undefined && originalDocumentPath() !== undefined)
+}
 
 /** The entry being edited, if any: which file, and which lines of it. */
 export const editing: Accessor<Span | undefined> = where
@@ -52,6 +65,11 @@ export const startEditingEntry = (transaction: Transaction): void => {
   dock.show("editing")
   setWhere(span)
   setShown(toForm(asText(lines), declaredCommodity()))
+  const path = documentPathOn(transaction.ttags, documents().tag)
+  setDocumentPath(path)
+  setOriginalDocumentPath(path)
+  setDocumentFile(undefined)
+  setDocumentRemoved(false)
   setTrouble(None)
 }
 
@@ -70,6 +88,10 @@ export const startEditingEntry = (transaction: Transaction): void => {
  */
 export const stopEditingEntry = (): void => {
   setWhere(undefined)
+  setDocumentPath(undefined)
+  setOriginalDocumentPath(undefined)
+  setDocumentFile(undefined)
+  setDocumentRemoved(false)
   setTrouble(None)
   if (dock.is("editing")) dock.close()
 }
@@ -105,7 +127,14 @@ export const saveEntry = async (written: string): Promise<boolean> => {
 
   setSaving(true)
   setTrouble(None)
-  const result = await commitEntry(span, written)
+  const removingEntry = written.trim() === ""
+  const result = await commitEntry(
+    span,
+    written,
+    removingEntry ? undefined : documentFile(),
+    removingEntry ? undefined : documentPath(),
+    !removingEntry && documentRemoved(),
+  )
   setSaving(false)
 
   if (!result.ok) {

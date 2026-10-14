@@ -110,7 +110,7 @@ function Book(props: { readonly open: OpenJournal }): JSX.Element {
         {promised() === false ? t("library.notKept") : t("library.kept")}
       </p>
       <div class="flex flex-col gap-1.5">
-        <Button variant="outline" size="sm" class="justify-start gap-1.5" onClick={() => void handOver(props.open.source)}>
+        <Button variant="outline" size="sm" class="justify-start gap-1.5" onClick={() => void handOver(props.open.bookId, props.open.source)}>
           <DownloadIcon class="h-3.5 w-3.5" />
           {t("journal.export")}
         </Button>

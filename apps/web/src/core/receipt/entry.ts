@@ -1,4 +1,4 @@
-import type { Draft, DraftPosting } from "~/core/compose/draft"
+import type { Draft, DraftPosting, Tag } from "~/core/compose/draft"
 import { SURE, type Doubt as Unsettled, type Item } from "~/core/journal/proposals"
 import { Err, Ok, type Result } from "~/core/lib/monad"
 import type { Picked } from "./accounts"
@@ -23,6 +23,7 @@ export type Unproposed =
   | { readonly is: "no-date" }
   | { readonly is: "no-issuer" }
   | { readonly is: "no-account"; readonly side: "expense" | "paid-from" }
+  | { readonly is: "document-settings-invalid" }
 
 export interface Into {
   readonly expense?: Picked
@@ -60,6 +61,7 @@ export const receiptItem = (
   receipt: Understood,
   into: Into,
   interpretation: Interpretation = SAID_NOTHING,
+  document?: { readonly path: string; readonly file: File; readonly tag: Tag },
 ): Result<Item, Unproposed> => {
   if (receipt.total === undefined) return Err({ is: "no-total" })
   if (receipt.date === undefined) return Err({ is: "no-date" })
@@ -71,12 +73,20 @@ export const receiptItem = (
     date: receipt.date,
     payee: receipt.issuer.trim(),
     note: "",
-    tags: interpretation.tags,
+    tags: [
+      ...interpretation.tags.filter((tag) => tag.name !== document?.tag.name),
+      ...(document === undefined ? [] : [document.tag]),
+    ],
     postings: [
       ...expenseLines(receipt.total.amount, into.expense.account, interpretation),
       { account: into.paidFrom.account, amount: "", tags: [] },
     ],
   }
   const sure = sureness(receipt, interpretation, { expense: into.expense, paidFrom: into.paidFrom })
-  return Ok({ is: "add", draft, ...sure })
+  return Ok({
+    is: "add",
+    draft,
+    ...sure,
+    ...(document === undefined ? {} : { document: { path: document.path, file: document.file } }),
+  })
 }

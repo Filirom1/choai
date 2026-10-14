@@ -30,7 +30,16 @@ import { capabilitiesWith, viewsWith, type View } from "~/edition/types"
 import { StandardEdition } from "~/editions/standard"
 import { CAPABILITY, NAMED, ROUTE, UNDER } from "~/editions/jp/naming"
 import { companionsAcross, companionsIn, declaringCompanion } from "~/core/journal/companions"
-import { withTag, withTags } from "~/core/journal/tagging"
+import {
+  DEFAULT_DOCUMENT_SETTINGS,
+  documentPathOn,
+  documentPathsInFiles,
+  pathForReceipt,
+  safeDocumentPath,
+  tagForDocument,
+  validDocumentSettings,
+} from "~/core/journal/documents"
+import { withoutTag, withTag, withTags } from "~/core/journal/tagging"
 import { byDay, weekdayOf } from "~/core/journal/days"
 import { byTop } from "~/core/explorer/tree"
 import { accountQuery } from "~/core/journal/account-query"
@@ -618,6 +627,38 @@ describe("the list beside a statement", () => {
   })
 })
 
+describe("document tags and settings", () => {
+  test("uses one evidence path from the configured entry tag", () => {
+    expect(DEFAULT_DOCUMENT_SETTINGS.tag).toBe("evidence")
+    expect(tagForDocument("evidence", "justificatifs/a.pdf")).toEqual({
+      name: "evidence",
+      value: "justificatifs/a.pdf",
+    })
+    expect(documentPathOn([["other", "x"], ["evidence", "justificatifs/a.pdf"]], "evidence")).toBe("justificatifs/a.pdf")
+    expect(documentPathOn([["evidence", "../../outside.pdf"]], "evidence")).toBeUndefined()
+  })
+
+  test("gives each receipt image a distinct supporting-document path", () => {
+    const file = new File(["photo"], "camera.jpg", { type: "image/jpeg" })
+    expect(pathForReceipt(file, "receipt-id", DEFAULT_DOCUMENT_SETTINGS)).toBe("justificatifs/receipt-id-camera.jpg")
+  })
+
+  test("finds linked document files in journal text, including arbitrary extensions", () => {
+    expect(documentPathsInFiles({
+      "main.journal": "; evidence: justificatifs/scan.odd\n2026-01-01 Shop  ; evidence: justificatifs/receipt.pdf, tax: yes",
+    }, "evidence")).toEqual(["justificatifs/scan.odd", "justificatifs/receipt.pdf"])
+    expect(safeDocumentPath("justificatifs/scan.odd")).toBe(true)
+    expect(safeDocumentPath("../outside.pdf")).toBe(false)
+  })
+
+  test("starts with safe defaults and refuses unsafe tag or folder names", () => {
+    expect(validDocumentSettings(DEFAULT_DOCUMENT_SETTINGS)).toBe(true)
+    expect(validDocumentSettings({ tag: "expense receipt", folder: "justificatifs" })).toBe(false)
+    expect(validDocumentSettings({ tag: "evidence", folder: "../elsewhere" })).toBe(false)
+    expect(validDocumentSettings({ tag: "evidence", folder: "receipts|other" })).toBe(false)
+  })
+})
+
 describe("the files a journal says belong beside it", () => {
   const journal = ["; the books", "", "; how amounts are written", "D $1,000.00", "", "2026-01-01 Shop", "    a  $1", "    b"].join("\n")
 
@@ -707,6 +748,17 @@ describe("putting a tag on an entry already written", () => {
   })
   test("a posting that is not there is nothing, not the next line", () => {
     expect(withTag(ENTRY, { on: "posting", at: 9 }, { name: "tax", value: "x" })).toBeUndefined()
+  })
+  test("removing a tag keeps neighboring tags and comments", () => {
+    const entry = ENTRY.replace("receipt:r-1", "receipt:r-1, evidence:scan.pdf")
+    expect(withoutTag(entry, { on: "entry" }, "evidence")).toBe(ENTRY)
+  })
+  test("removing a tag on a continuation leaves the continuation line", () => {
+    const entry = ENTRY.replace("    ; a note about it", "    ; a note about it, evidence:scan.pdf")
+    expect(withoutTag(entry, { on: "entry" }, "evidence")).toBe(ENTRY)
+  })
+  test("removing a missing tag changes nothing", () => {
+    expect(withoutTag(ENTRY, { on: "entry" }, "evidence")).toBe(ENTRY)
   })
   test("several at once", () => {
     const out = withTags(ENTRY, [

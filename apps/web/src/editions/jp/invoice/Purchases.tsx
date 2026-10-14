@@ -1,11 +1,10 @@
 import { For, Show, type JSX } from "solid-js"
 
 import type { JapaneseTaxTransaction } from "../consumption-tax/normalize"
+import { DocumentLink } from "~/core/journal/DocumentLink"
 import { CELL, Figures, HEAD } from "../ui/Layers"
-import { openNow } from "../ui/books"
 import { filled, words } from "../words"
 import { saysSomething, type InvoiceNote } from "./note"
-import { evidenceAt } from "./where"
 
 /**
  * The purchases a deduction turns on, and what is known about the paper behind
@@ -98,28 +97,9 @@ function Status(props: { readonly note: InvoiceNote }): JSX.Element {
  * reading the file without this app has to go on.
  */
 function Evidence(props: { readonly note: InvoiceNote }): JSX.Element {
-  const path = (): string | undefined => props.note.evidence
-  const at = (): string | undefined => {
-    const said = path()
-    return said === undefined ? undefined : evidenceAt(openNow()?.remote, said)
-  }
-
   return (
-    <Show when={path()} fallback={<span class="text-muted-foreground">—</span>}>
-      {(said) => (
-        <Show when={at()} fallback={<span class="font-mono">{said()}</span>}>
-          {(href) => (
-            <a
-              class="font-mono underline underline-offset-2 hover:text-accent-foreground"
-              href={href()}
-              target="_blank"
-              rel="noreferrer"
-            >
-              {said()}
-            </a>
-          )}
-        </Show>
-      )}
+    <Show when={props.note.evidence} fallback={<span class="text-muted-foreground">—</span>}>
+      {(path) => <DocumentLink path={path()} />}
     </Show>
   )
 }

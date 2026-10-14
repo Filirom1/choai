@@ -184,6 +184,13 @@ function One(props: { proposal: Proposal }): JSX.Element {
                   </span>
                 )}
               </Show>
+              <Show when={item.is === "add" ? item.document : undefined}>
+                {(document) => (
+                  <span class="text-xs text-muted-foreground">
+                    {t("propose.document", { path: document().path })}
+                  </span>
+                )}
+              </Show>
               <Show when={item.confidence < SURE}>
                 <span class="text-xs text-muted-foreground">
                   {t("propose.worthALook")}

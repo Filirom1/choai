@@ -16,6 +16,7 @@ import searchSvg from './search.svg?raw'
 import chevronLeftSvg from './chevron-left.svg?raw'
 import gitBranchSvg from './git-branch.svg?raw'
 import funnelSvg from './funnel.svg?raw'
+import paperclipSvg from './paperclip.svg?raw'
 
 /**
  * Icons. The SVG bodies live beside this file as .svg files, drawn with
@@ -67,6 +68,8 @@ export const FileCodeIcon = icon(fileCodeSvg)
 export const CloudIcon = icon(cloudSvg)
 /** Taking something into the books: receipts photographed, statements downloaded. */
 export const ImportIcon = icon(importSvg)
+/** A document attached to an entry. */
+export const PaperclipIcon = icon(paperclipSvg)
 
 export const RefreshIcon = icon(refreshCwSvg)
 

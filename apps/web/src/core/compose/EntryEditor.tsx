@@ -5,11 +5,15 @@ import { TroubleNote } from "~/core/components/trouble-note"
 import { getOrUndefined } from "~/core/lib/monad"
 import { t } from "~/core/i18n"
 import { EntryForm } from "./EntryForm"
+import { DocumentField } from "./DocumentField"
 import { EntryText } from "./EntryText"
 import {
   editEntry,
   editEntryDraft,
   editing,
+  editingDocumentFile,
+  editingDocumentPath,
+  chooseEditingDocument,
   editingShown,
   entrySaving,
   entryTrouble,
@@ -22,6 +26,7 @@ import {
 import { canBeForm, writtenOf } from "./surface"
 import { emptyDraft, todayISO, type Draft } from "./draft"
 import { declaredCommodity } from "~/core/journal/store"
+import { documents } from "~/core/journal/documents"
 
 /**
  * One entry, as the form it is written from or as the lines it is written on.
@@ -51,13 +56,20 @@ export function EntryEditor(): JSX.Element {
             }
           >
             {(_) => (
-              <EntryForm draft={draftOfEdit} onEdit={editEntryDraft}>
+              <EntryForm draft={draftOfEdit} onEdit={editEntryDraft} hiddenEntryTags={[documents().tag]}>
                   <Button variant="ghost" size="sm" class="self-start px-1" onClick={showEditAsText}>
                     {t("compose.asText")}
                   </Button>
                 </EntryForm>
             )}
           </Show>
+
+          <DocumentField
+            path={editingDocumentPath()}
+            file={editingDocumentFile()}
+            disabled={entrySaving()}
+            onSelect={chooseEditingDocument}
+          />
 
           <div class="flex flex-wrap items-center gap-2">
             <Button

@@ -11,6 +11,8 @@ import { createTask } from "~/core/lib/pending"
 import { Err, None, Ok, Some, getOrUndefined, type Option, type Result } from "~/core/lib/monad"
 import { t } from "~/core/i18n"
 import { atTheJournal } from "~/core/hledger/turn"
+import { declaringCompanion } from "~/core/journal/companions"
+import { documentPathsInFiles, documents, safeDocumentPath } from "~/core/journal/documents"
 import { demoJournal } from "./demo"
 import { MAIN, TRANSACTIONS, includedBy, including, laidOut } from "./layout"
 import { retitled, titleOf } from "./title"
@@ -20,6 +22,7 @@ import {
   bookWithFiles,
   currentBook,
   forgetBook,
+  forgetAttachment,
   keepBook,
   markCurrent,
   attachmentOf,
@@ -165,11 +168,14 @@ const attempt = (source: Source): Promise<Result<JournalSummary, Trouble>> =>
  * nowhere else: a page loaded then — the app opened again straight after
  * taking a copy from GitHub, say — came back without them.
  */
-const remember = async (raw: OpenJournal): Promise<Result<OpenJournal, Trouble>> => {
+const remember = async (
+  raw: OpenJournal,
+  incoming: readonly { readonly path: string; readonly blob: Blob }[] = [],
+): Promise<Result<OpenJournal, Trouble>> => {
   const open = { ...raw, source: { ...raw.source, label: nameOf(raw.source) } }
   setOpened(Some(open))
   setTrouble(None)
-  await keepOnThisDevice(open)
+  await keepOnThisDevice(open, incoming)
   return Ok(open)
 }
 
@@ -196,9 +202,15 @@ const keeping = createRoot(() => createGate())
  * journal in hand still works, and the next open tries again — so it is caught
  * here and goes no further.
  */
-const keepOnThisDevice = (open: OpenJournal): Promise<void> => keeping.through(() => keep(open))
+const keepOnThisDevice = (
+  open: OpenJournal,
+  incoming: readonly { readonly path: string; readonly blob: Blob }[] = [],
+): Promise<void> => keeping.through(() => keep(open, incoming))
 
-const keep = async (open: OpenJournal): Promise<void> => {
+const keep = async (
+  open: OpenJournal,
+  incoming: readonly { readonly path: string; readonly blob: Blob }[] = [],
+): Promise<void> => {
   try {
     await keepBook({
       id: open.bookId,
@@ -210,7 +222,7 @@ const keep = async (open: OpenJournal): Promise<void> => {
       openedAt: Date.now(),
       files: open.source.files,
       attachments: open.source.attachments,
-    })
+    }, incoming)
     await markCurrent(open.bookId)
     await restock()
   } catch {
@@ -324,7 +336,10 @@ export const setLocalFolderActive = async (): Promise<void> => {
  * whatever was being typed is still there to fix. Opening proper is the other
  * thing — a journal that will not read leaves nothing open, and should.
  */
-export const openIfItReads = async (source: Source): Promise<Result<OpenJournal, Trouble>> => {
+export const openIfItReads = async (
+  source: Source,
+  incoming: readonly { readonly path: string; readonly blob: Blob }[] = [],
+): Promise<Result<OpenJournal, Trouble>> => {
   const current = getOrUndefined(opened())
   if (current === undefined) return Err({ kind: "no-journal" })
   const read = await attempt(source)
@@ -332,7 +347,7 @@ export const openIfItReads = async (source: Source): Promise<Result<OpenJournal,
     setTrouble(Some(read.error))
     return Err(read.error)
   }
-  return remember({ ...current, source, summary: read.value })
+  return remember({ ...current, source, summary: read.value }, incoming)
 }
 
 /**
@@ -473,17 +488,31 @@ const missingFrom = (trouble: Trouble): string | undefined => {
  * so it is offered to hledger before it is kept. A book without the file yet
  * has it started, and named in the entry file's includes in the same write.
  */
-export const writeTransactions = async (text: string): Promise<Result<OpenJournal, Trouble>> => {
-  const current = getOrUndefined(opened())
-  if (current === undefined) return Err({ kind: "no-journal" })
-  const files: Readonly<Record<string, string>> = { ...current.source.files, [TRANSACTIONS]: text }
-  const entry = entryName(current.source)
-  return change(
-    current,
-    current.source.files[TRANSACTIONS] === undefined
+const withTransactions = (source: Source, text: string): Source => {
+  const files: Readonly<Record<string, string>> = { ...source.files, [TRANSACTIONS]: text }
+  const entry = entryName(source)
+  return {
+    ...source,
+    files: source.files[TRANSACTIONS] === undefined
       ? { ...files, [entry]: including(files[entry] ?? "", TRANSACTIONS) }
       : files,
-  )
+  }
+}
+
+export const writeTransactions = async (text: string): Promise<Result<OpenJournal, Trouble>> => {
+  const current = getOrUndefined(opened())
+  return current === undefined ? Err({ kind: "no-journal" }) : change(current, withTransactions(current.source, text).files)
+}
+
+export const writeTransactionsWithDocument = async (
+  text: string,
+  file: File,
+  path: string,
+): Promise<Result<OpenJournal, Trouble>> => {
+  const current = getOrUndefined(opened())
+  return current === undefined
+    ? Err({ kind: "no-journal" })
+    : keepDocument(current, withTransactions(current.source, text), file, path)
 }
 
 /**
@@ -498,6 +527,44 @@ export const rewriteFile = async (path: string, text: string): Promise<Result<Op
   if (current === undefined) return Err({ kind: "no-journal" })
   if (current.source.files[path] === undefined) return Err({ kind: "file-missing", path })
   return change(current, { ...current.source.files, [path]: text })
+}
+
+export const rewriteFileWithDocument = async (
+  path: string,
+  text: string,
+  file: File,
+  documentPath: string,
+): Promise<Result<OpenJournal, Trouble>> => {
+  const current = getOrUndefined(opened())
+  if (current === undefined) return Err({ kind: "no-journal" })
+  if (current.source.files[path] === undefined) return Err({ kind: "file-missing", path })
+  return keepDocument(current, { ...current.source, files: { ...current.source.files, [path]: text } }, file, documentPath)
+}
+
+const keepDocument = async (
+  current: OpenJournal,
+  source: Source,
+  file: File,
+  path: string,
+): Promise<Result<OpenJournal, Trouble>> => {
+  if (!safeDocumentPath(path)) return Err({ kind: "unsupported-file" })
+  const entry = entryName(source)
+  const files = {
+    ...source.files,
+    [entry]: declaringCompanion(source.files[entry] ?? "", path),
+  }
+  const attachment = { path, type: file.type || "application/octet-stream", size: file.size }
+  const attachments = source.attachments.some((one) => one.path === path)
+    ? source.attachments
+    : [...source.attachments, attachment]
+  try {
+    await putAttachments(current.bookId, [{ ...attachment, blob: file }])
+  } catch (cause) {
+    return Err({ kind: "unreachable", detail: String(cause) })
+  }
+  const written = await openIfItReads({ ...source, files, attachments })
+  if (!written.ok) await forgetAttachment(current.bookId, path).catch(() => undefined)
+  return written
 }
 
 /**
@@ -536,10 +603,27 @@ export const rewriteFiles = async (
  */
 export const putFiles = async (
   written: Readonly<Record<string, string>>,
+  documents: readonly { readonly path: string; readonly file: File }[] = [],
 ): Promise<Result<OpenJournal, Trouble>> => {
   const current = getOrUndefined(opened())
   if (current === undefined) return Err({ kind: "no-journal" })
-  return change(current, { ...current.source.files, ...written })
+  const unsafe = documents.find(({ path }) => !safeDocumentPath(path))
+  if (unsafe !== undefined) return Err({ kind: "unsupported-file" })
+  const attachments = documents.map(({ path, file }) => ({
+    path,
+    type: file.type || "application/octet-stream",
+    size: file.size,
+  }))
+  const paths = new Set(attachments.map(({ path }) => path))
+  const source = {
+    ...current.source,
+    files: { ...current.source.files, ...written },
+    attachments: [
+      ...current.source.attachments.filter(({ path }) => !paths.has(path)),
+      ...attachments,
+    ],
+  }
+  return openIfItReads(source, documents.map(({ path, file }) => ({ path, blob: file })))
 }
 
 /** The entry path as hledger sees it, back to the key the files are held under. */
@@ -640,8 +724,11 @@ const openChosenFiles = async (
   const contents = await Promise.all(
     usable.filter(([path]) => !isAttachment(path)).map(async ([path, file]) => [path, await readText(file)] as const),
   )
-  const binary = usable.filter(([path]) => isAttachment(path))
-  const files = Object.fromEntries(contents)
+  const decoded = Object.fromEntries(contents)
+  const documentPaths = new Set(documentPathsInFiles(decoded, documents().tag))
+  const binary = usable.filter(([path]) => isAttachment(path) || documentPaths.has(path))
+  const binaryPaths = new Set(binary.map(([path]) => path))
+  const files = Object.fromEntries(contents.filter(([path]) => !binaryPaths.has(path)))
   const names = contents.map(([name]) => name)
   const entries = names.filter(looksLikeJournalFile)
   const included = new Set(Object.values(files).flatMap(includedBy))
@@ -652,12 +739,12 @@ const openChosenFiles = async (
   const opened = await startBook({
     label: selected === undefined ? entry : `${entry} (+${entries.length - 1} more)`,
     files,
-    attachments: binary.map(([path, file]) => ({ path, type: file.type, size: file.size })),
+    attachments: binary.map(([path, file]) => ({ path, type: file.type || "application/octet-stream", size: file.size })),
     entry: `/${entry}`,
     selectedEntries: selected,
   })
   if (opened.ok) {
-    await mapLimited(binary, 2, async ([path, file]) => putAttachments(opened.value.bookId, [{ path, type: file.type, size: file.size, blob: file }]))
+    await mapLimited(binary, 2, async ([path, file]) => putAttachments(opened.value.bookId, [{ path, type: file.type || "application/octet-stream", size: file.size, blob: file }]))
   }
   return opened
 }
@@ -737,12 +824,18 @@ export type LocalTrouble = LocalFailure | { readonly at: "unsaved" } | { readonl
 export const saveToLocalFolder = (): Promise<Result<void, LocalTrouble>> => localWork.through(async () => {
   const open = getOrUndefined(opened())
   if (open?.local === undefined) return Err({ at: "not-linked" })
+  const companions = await Promise.all(open.source.attachments.map(async ({ path }) => {
+    const blob = await loadAttachment(open.bookId, path)
+    return blob === undefined ? undefined : { path, blob }
+  }))
+  const missing = open.source.attachments.find((attachment) => !companions.some((one) => one?.path === attachment.path))
+  if (missing !== undefined) return Err({ at: "changed", path: missing.path })
   const result = await saveLocalFolder(open.local, open.source.files, async (local) => {
     const current = getOrUndefined(opened())
     const updated = { ...(current?.bookId === open.bookId ? current : open), local }
     if (current?.bookId === open.bookId) setOpened(Some(updated))
     await keepOnThisDevice(updated)
-  })
+  }, companions.flatMap((one) => one === undefined ? [] : [one]))
   return result.ok ? Ok(undefined) : result
 })
 
@@ -757,9 +850,12 @@ export const reloadLocalFolder = (how: "clean" | "discard" = "clean"): Promise<R
     const chosen = await filesBelow(open.local.handle as FileSystemDirectoryHandle & FolderDirectory)
     const contents = await Promise.all(chosen.filter(([path]) => !isDocumentation(path) && !isGitMetadata(path) && !isAttachment(path))
       .map(async ([path, file]) => [path, await readText(file)] as const))
-    const files = Object.fromEntries(contents)
-    const attachments = chosen.filter(([path]) => isAttachment(path))
-    const source = { ...open.source, files, attachments: attachments.map(([path, file]) => ({ path, type: file.type, size: file.size })) }
+    const decoded = Object.fromEntries(contents)
+    const documentPaths = new Set(documentPathsInFiles(decoded, documents().tag))
+    const attachments = chosen.filter(([path]) => isAttachment(path) || documentPaths.has(path))
+    const attachmentPaths = new Set(attachments.map(([path]) => path))
+    const files = Object.fromEntries(contents.filter(([path]) => !attachmentPaths.has(path)))
+    const source = { ...open.source, files, attachments: attachments.map(([path, file]) => ({ path, type: file.type || "application/octet-stream", size: file.size })) }
     return atTheJournal.through(async (): Promise<Result<void, LocalTrouble>> => {
       if (getOrUndefined(opened()) !== open) return Err({ at: "unsaved" })
       const read = await openSource(source)
@@ -771,7 +867,7 @@ export const reloadLocalFolder = (how: "clean" | "discard" = "clean"): Promise<R
       }
       const result = await remember({ ...open, source, summary: read.value, local: { handle: open.local!.handle, base: files } })
       if (!result.ok) return Err({ at: "hledger", trouble: result.error })
-      await mapLimited(attachments, 2, async ([path, file]) => putAttachments(open.bookId, [{ path, type: file.type, size: file.size, blob: file }]))
+      await mapLimited(attachments, 2, async ([path, file]) => putAttachments(open.bookId, [{ path, type: file.type || "application/octet-stream", size: file.size, blob: file }]))
       return Ok(undefined)
     })
   } catch (cause) {
