@@ -12,7 +12,8 @@ import { Err, None, Ok, Some, getOrUndefined, type Option, type Result } from "~
 import { t } from "~/core/i18n"
 import { atTheJournal } from "~/core/hledger/turn"
 import { declaringCompanion } from "~/core/journal/companions"
-import { documentPathsInFiles, documents, safeDocumentPath } from "~/core/journal/documents"
+import { documentSettingsFromFiles } from "~/core/journal/book-config"
+import { documentPathsInFiles, safeDocumentPath } from "~/core/journal/documents"
 import { demoJournal } from "./demo"
 import { MAIN, TRANSACTIONS, includedBy, including, laidOut } from "./layout"
 import { retitled, titleOf } from "./title"
@@ -725,7 +726,7 @@ const openChosenFiles = async (
     usable.filter(([path]) => !isAttachment(path)).map(async ([path, file]) => [path, await readText(file)] as const),
   )
   const decoded = Object.fromEntries(contents)
-  const documentPaths = new Set(documentPathsInFiles(decoded, documents().tag))
+  const documentPaths = new Set(documentPathsInFiles(decoded, documentSettingsFromFiles(decoded).tag))
   const binary = usable.filter(([path]) => isAttachment(path) || documentPaths.has(path))
   const binaryPaths = new Set(binary.map(([path]) => path))
   const files = Object.fromEntries(contents.filter(([path]) => !binaryPaths.has(path)))
@@ -851,7 +852,7 @@ export const reloadLocalFolder = (how: "clean" | "discard" = "clean"): Promise<R
     const contents = await Promise.all(chosen.filter(([path]) => !isDocumentation(path) && !isGitMetadata(path) && !isAttachment(path))
       .map(async ([path, file]) => [path, await readText(file)] as const))
     const decoded = Object.fromEntries(contents)
-    const documentPaths = new Set(documentPathsInFiles(decoded, documents().tag))
+    const documentPaths = new Set(documentPathsInFiles(decoded, documentSettingsFromFiles(decoded).tag))
     const attachments = chosen.filter(([path]) => isAttachment(path) || documentPaths.has(path))
     const attachmentPaths = new Set(attachments.map(([path]) => path))
     const files = Object.fromEntries(contents.filter(([path]) => !attachmentPaths.has(path)))

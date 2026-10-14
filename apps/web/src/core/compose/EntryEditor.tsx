@@ -26,7 +26,7 @@ import {
 import { canBeForm, writtenOf } from "./surface"
 import { emptyDraft, todayISO, type Draft } from "./draft"
 import { declaredCommodity } from "~/core/journal/store"
-import { documents } from "~/core/journal/documents"
+import { documents } from "~/core/journal/book-settings"
 
 /**
  * One entry, as the form it is written from or as the lines it is written on.

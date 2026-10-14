@@ -125,7 +125,11 @@ export default function Reports(): JSX.Element {
     const saved = savedReports()
     return id === undefined || !saved.ok ? undefined : saved.value.find((report) => report.id === id)
   }
-  return <Show when={customId()} keyed fallback={<Statements />}><ReportEditor report={custom()} /></Show>
+  const editorKey = () => {
+    const id = customId()
+    return id === undefined ? undefined : `${getOrUndefined(journal())?.bookId ?? "no-book"}:${id}`
+  }
+  return <Show when={editorKey()} keyed fallback={<Statements />}><ReportEditor report={custom()} /></Show>
 }
 
 function Statements(): JSX.Element {
@@ -177,6 +181,7 @@ function ReportEditor(props: { readonly report?: SavedReport }): JSX.Element {
   const [name, setName] = createSignal(props.report?.name ?? "")
   const [command, setCommand] = createSignal(props.report?.command ?? "balance expenses --pivot=project --monthly")
   const [failure, setFailure] = createSignal<DefinitionTrouble>()
+  const [saving, setSaving] = createSignal(false)
   const [editing, setEditing] = createSignal(props.report === undefined)
   const [submitted, setSubmitted] = createSignal<string | undefined>(props.report?.command)
   const [report] = createResource(
@@ -187,9 +192,11 @@ function ReportEditor(props: { readonly report?: SavedReport }): JSX.Element {
     },
     (asked) => ask({ kind: "command", command: asked.command }),
   )
-  const save = (): void => {
+  const save = async (): Promise<void> => {
     const definition = reportDefinition(props.report?.id ?? crypto.randomUUID(), name(), command())
-    const kept = definition.ok ? saveReport(definition.value) : definition
+    setSaving(true)
+    const kept = definition.ok ? await saveReport(definition.value) : definition
+    setSaving(false)
     setFailure(kept.ok ? undefined : kept.error)
     if (kept.ok && definition.ok) {
       setSubmitted(definition.value.command)
@@ -197,9 +204,11 @@ function ReportEditor(props: { readonly report?: SavedReport }): JSX.Element {
       moves.goTo(addressOfCustomReport(definition.value.id))
     }
   }
-  const remove = (): void => {
+  const remove = async (): Promise<void> => {
     if (props.report === undefined) return
-    const removed = removeReport(props.report.id)
+    setSaving(true)
+    const removed = await removeReport(props.report.id)
+    setSaving(false)
     setFailure(removed.ok ? undefined : removed.error)
     if (removed.ok) moves.goTo(addressOfCustomReport("new"))
   }
@@ -217,8 +226,8 @@ function ReportEditor(props: { readonly report?: SavedReport }): JSX.Element {
               <div class="flex items-center gap-2">
                 <PrintButton />
                 <div class="flex gap-2">
-                  <Button size="sm" variant="outline" onClick={() => setEditing(true)}>{t("customReport.edit")}</Button>
-                  <Button size="sm" variant="ghost" onClick={remove}>{t("customReport.remove")}</Button>
+                  <Button size="sm" variant="outline" disabled={saving()} onClick={() => setEditing(true)}>{t("customReport.edit")}</Button>
+                  <Button size="sm" variant="ghost" disabled={saving()} onClick={() => void remove()}>{t("customReport.remove")}</Button>
                 </div>
               </div>
             </div>
@@ -238,7 +247,7 @@ function ReportEditor(props: { readonly report?: SavedReport }): JSX.Element {
         <div class="flex gap-2">
           <Button size="sm" disabled={command().trim() === "" || getOrUndefined(journal()) === undefined || report.loading}
             onClick={() => setSubmitted(command())}>{t("customReport.run")}</Button>
-          <Button size="sm" variant="outline" onClick={save}>{t("customReport.save")}</Button>
+          <Button size="sm" variant="outline" disabled={saving()} onClick={() => void save()}>{t("customReport.save")}</Button>
           <Show when={props.report !== undefined}>
             <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>{t("customReport.cancel")}</Button>
           </Show>

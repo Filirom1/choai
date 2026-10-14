@@ -42,14 +42,19 @@ export const loadIdentity = (): Promise<Result<void, AuthFailure>> => {
   if (window.google?.accounts?.oauth2 !== undefined) return Promise.resolve(Ok(undefined))
   if (loading !== undefined) return loading
   loading = new Promise<Result<void, AuthFailure>>((resolve) => {
-    const existing = document.querySelector<HTMLScriptElement>(`script[src="${SCRIPT}"]`)
-    const script = existing ?? document.createElement("script")
+    Array.from(document.scripts).filter(({ src }) => src === SCRIPT).forEach((script) => script.remove())
+    const script = document.createElement("script")
+    const finish = (result: Result<void, AuthFailure>): void => {
+      window.clearTimeout(timeout)
+      resolve(result)
+    }
+    const timeout = window.setTimeout(() => finish(Err({ at: "script" })), 15_000)
     script.src = SCRIPT
     script.async = true
     script.defer = true
-    script.onload = () => resolve(window.google?.accounts?.oauth2 === undefined ? Err({ at: "script" }) : Ok(undefined))
-    script.onerror = () => resolve(Err({ at: "script" }))
-    if (existing === null) document.head.append(script)
+    script.onload = () => finish(window.google?.accounts?.oauth2 === undefined ? Err({ at: "script" }) : Ok(undefined))
+    script.onerror = () => finish(Err({ at: "script" }))
+    document.head.append(script)
   }).then((result) => {
     loading = undefined
     return result

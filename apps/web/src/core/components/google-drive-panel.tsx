@@ -22,7 +22,6 @@ export type GoogleDriveBound =
 
 export function GoogleDrivePanel(props: { readonly bound: GoogleDriveBound }): JSX.Element {
   const [savedClientId, { refetch }] = createResource(clientId)
-  const [loaded, setLoaded] = createSignal(false)
   const [identityUnavailable, setIdentityUnavailable] = createSignal(false)
   const [typedClientId, setTypedClientId] = createSignal<string | undefined>()
   const [folderId, setFolderId] = createSignal<string | undefined>()
@@ -38,11 +37,14 @@ export function GoogleDrivePanel(props: { readonly bound: GoogleDriveBound }): J
   const [journalFiles, setJournalFiles] = createSignal<readonly DriveFile[]>([])
   const [driveToken, setDriveToken] = createSignal<string | undefined>()
 
+  const ensureIdentity = async (): Promise<boolean> => {
+    const result = await loadIdentity()
+    setIdentityUnavailable(!result.ok)
+    return result.ok
+  }
+
   onMount(() => {
-    void loadIdentity().then((result) => {
-      setLoaded(result.ok)
-      setIdentityUnavailable(!result.ok)
-    })
+    void ensureIdentity()
   })
 
   const forNewBook = (): boolean => props.bound.into === "new-book"
@@ -95,6 +97,7 @@ export function GoogleDrivePanel(props: { readonly bound: GoogleDriveBound }): J
     } else setSaid(outcomeWords(result.value))
   }
   const connect = (): Promise<void> => run(async () => {
+    if (!(await ensureIdentity())) return
     const token = await accessToken(id())
     if (!token.ok) {
       setSnag({ at: "not-connected" })
@@ -111,6 +114,7 @@ export function GoogleDrivePanel(props: { readonly bound: GoogleDriveBound }): J
     setTypedClientId(undefined)
   })
   const chooseJournal = (): Promise<void> => run(async () => {
+    if (!(await ensureIdentity())) return
     const token = await accessToken(id())
     if (!token.ok) {
       setSnag({ at: "not-connected" })
@@ -254,8 +258,8 @@ export function GoogleDrivePanel(props: { readonly bound: GoogleDriveBound }): J
       <div class="flex flex-wrap gap-2">
         <Show when={forNewBook()} fallback={
           <>
-            <Button type="submit" size="sm" disabled={!loaded() || busy()}>{t("gdrive.connect")}</Button>
-            <Button type="button" variant="outline" size="sm" disabled={!loaded() || busy()} onClick={() => folderBrowserOpen() ? setFolderBrowserOpen(false) : void chooseJournal()}>{folderBrowserOpen() ? t("gdrive.closePicker") : t("gdrive.pickJournal")}</Button>
+            <Button type="submit" size="sm" disabled={busy()}>{t("gdrive.connect")}</Button>
+            <Button type="button" variant="outline" size="sm" disabled={busy()} onClick={() => folderBrowserOpen() ? setFolderBrowserOpen(false) : void chooseJournal()}>{folderBrowserOpen() ? t("gdrive.closePicker") : t("gdrive.pickJournal")}</Button>
             <Button type="button" variant="outline" size="sm" disabled={!valid() || busy() || waiting.loading || (waiting() ?? []).length > 0} onClick={() => void take()}>{t("gdrive.pull")}</Button>
             <Button type="button" variant="outline" size="sm" disabled={!valid() || busy() || waiting.loading || (waiting() ?? []).length === 0} onClick={() => void send()}>{t("gdrive.push")}</Button>
             <Button type="button" variant="ghost" size="sm" disabled={busy()} onClick={() => void checkRemote()}>{t("gdrive.check")}</Button>
@@ -264,7 +268,7 @@ export function GoogleDrivePanel(props: { readonly bound: GoogleDriveBound }): J
             </Show>
           </>
         }>
-          <Button type="button" size="sm" disabled={!loaded() || busy()} onClick={() => folderBrowserOpen() ? setFolderBrowserOpen(false) : void chooseJournal()}>
+          <Button type="button" size="sm" disabled={busy()} onClick={() => folderBrowserOpen() ? setFolderBrowserOpen(false) : void chooseJournal()}>
             {folderBrowserOpen() ? t("gdrive.closePicker") : t("books.fromGoogleDrive")}
           </Button>
         </Show>

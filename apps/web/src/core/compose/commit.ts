@@ -12,7 +12,8 @@ import {
 } from "~/core/journal/store"
 import { Err, getOrUndefined, Ok, type Result } from "~/core/lib/monad"
 import { appendText, appendToJournal, draftToJournal, type Draft } from "./draft"
-import { documents, pathForDocument, safeDocumentPath, tagForDocument, validDocumentSettings } from "~/core/journal/documents"
+import { documents } from "~/core/journal/book-settings"
+import { pathForDocument, safeDocumentPath, tagForDocument, validDocumentSettings } from "~/core/journal/documents"
 import { withoutTag, withTag } from "~/core/journal/tagging"
 
 /**

@@ -1,7 +1,8 @@
 import { Err, Ok, getOrUndefined, type Result } from "~/core/lib/monad"
 import { journal, loadAttachment, openBringingMissing, registerAttachmentLoader, rewriteFile, type Attachment, type OpenJournal } from "~/core/journal/store"
 import { companionsIn } from "~/core/journal/companions"
-import { documentPathsInFiles, documents } from "~/core/journal/documents"
+import { documentSettingsFromFiles } from "~/core/journal/book-config"
+import { documentPathsInFiles } from "~/core/journal/documents"
 import { putAttachments, type GitHubRemote } from "~/core/journal/kept"
 import { isGitHubRemote } from "~/core/journal/remote"
 import type { Trouble } from "~/core/hledger/wire"
@@ -127,7 +128,8 @@ const take = async (
   fetched.forEach((file) => {
     if (file.kind === "text") brought.set(file.path, { text: file.text, sha: file.sha, repoPath: file.repoPath })
   })
-  const linked = new Set(documentPathsInFiles(Object.fromEntries([...brought].map(([path, file]) => [path, file.text])), documents().tag))
+  const broughtFiles = Object.fromEntries([...brought].map(([path, file]) => [path, file.text]))
+  const linked = new Set(documentPathsInFiles(broughtFiles, documentSettingsFromFiles(broughtFiles).tag))
   const attachmentPaths = paths.filter((path) => binary(path) || linked.has(relative(path)))
   attachmentPaths.forEach((path) => brought.delete(relative(path)))
   const attachments: readonly Attachment[] = attachmentPaths.map((path) => ({ path: relative(path), type: mimeOf(path), size: 0 }))

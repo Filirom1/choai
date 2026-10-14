@@ -1,5 +1,3 @@
-import { createRoot, createSignal, type Accessor } from "solid-js"
-
 import type { Tag as DraftTag } from "~/core/compose/draft"
 import type { Tag as JournalTag } from "~/core/hledger/wire"
 
@@ -17,26 +15,6 @@ export const DEFAULT_DOCUMENT_SETTINGS: DocumentSettings = {
   folder: "justificatifs",
 }
 
-const KEY = "choai.documents"
-
-const settingsFrom = (value: unknown): DocumentSettings => {
-  if (typeof value !== "object" || value === null) return DEFAULT_DOCUMENT_SETTINGS
-  const candidate = value as Partial<DocumentSettings>
-  return {
-    tag: typeof candidate.tag === "string" ? candidate.tag : DEFAULT_DOCUMENT_SETTINGS.tag,
-    folder: typeof candidate.folder === "string" ? candidate.folder : DEFAULT_DOCUMENT_SETTINGS.folder,
-  }
-}
-
-const remembered = (): DocumentSettings => {
-  try {
-    const stored = localStorage.getItem(KEY)
-    return stored === null ? DEFAULT_DOCUMENT_SETTINGS : settingsFrom(JSON.parse(stored) as unknown)
-  } catch {
-    return DEFAULT_DOCUMENT_SETTINGS
-  }
-}
-
 export const validDocumentSettings = (settings: DocumentSettings): boolean =>
   /^[\w.-]+$/.test(settings.tag) &&
   settings.folder.length > 0 &&
@@ -44,21 +22,6 @@ export const validDocumentSettings = (settings: DocumentSettings): boolean =>
   !settings.folder.includes("\\") &&
   !/[|,\n\r]/.test(settings.folder) &&
   settings.folder.split("/").every((part) => part !== "" && part !== "." && part !== "..")
-
-const [documentSettings, setDocumentSettings] = createRoot(() =>
-  createSignal<DocumentSettings>(remembered()),
-)
-
-export const documents: Accessor<DocumentSettings> = documentSettings
-
-export const saveDocumentSettings = (settings: DocumentSettings): void => {
-  setDocumentSettings(settings)
-  try {
-    localStorage.setItem(KEY, JSON.stringify(settings))
-  } catch {
-    return
-  }
-}
 
 export const safeDocumentPath = (path: string): boolean =>
   path !== "" &&

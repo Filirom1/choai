@@ -8,7 +8,8 @@ import { commitEntry } from "./commit"
 import type { DraftEdit } from "./draft"
 import { asText, applySurfaceEdit, toForm, toText, type Surface } from "./surface"
 import { dock } from "~/core/dock"
-import { documentPathOn, documents, type DocumentSelection } from "~/core/journal/documents"
+import { documents } from "~/core/journal/book-settings"
+import { documentPathOn, type DocumentSelection } from "~/core/journal/documents"
 
 /**
  * Editing an entry that is already written.

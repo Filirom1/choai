@@ -1,6 +1,7 @@
 import { Err, Ok, getOrUndefined, type Result } from "~/core/lib/monad"
 import { journal, loadAttachment, openBringingMissing, registerAttachmentLoader, type Attachment, type OpenJournal } from "~/core/journal/store"
-import { documentPathsInFiles, documents } from "~/core/journal/documents"
+import { BOOK_CONFIG_PATH, documentSettingsFromFiles } from "~/core/journal/book-config"
+import { documentPathsInFiles } from "~/core/journal/documents"
 import { putAttachments } from "~/core/journal/kept"
 import type { GoogleDriveRemote } from "~/core/journal/remote"
 import type { Trouble } from "~/core/hledger/wire"
@@ -148,8 +149,15 @@ const take = async (
   const failed = texts.find((text) => !text.ok)
   if (failed !== undefined && !failed.ok) return Err({ at: "drive", failure: failed.error.failure })
   const fetched = texts.flatMap((text) => text.ok ? [text.value] : [])
-  const decoded = Object.fromEntries(fetched.map(({ path, text }) => [path, text]))
-  const linked = new Set(documentPathsInFiles(decoded, documents().tag))
+  const legacyConfigPath = `${BOOK_CONFIG_PATH.slice(0, -1)}/${BOOK_CONFIG_PATH}`
+  const hasConfig = fetched.some(({ path }) => path === BOOK_CONFIG_PATH)
+  const bookFiles = fetched.flatMap((file) => file.path !== legacyConfigPath
+    ? [file]
+    : hasConfig
+      ? []
+      : [{ ...file, path: BOOK_CONFIG_PATH }])
+  const decoded = Object.fromEntries(bookFiles.map(({ path, text }) => [path, text]))
+  const linked = new Set(documentPathsInFiles(decoded, documentSettingsFromFiles(decoded).tag))
   const fileTexts = Object.fromEntries(Object.entries(decoded).filter(([path]) => !linked.has(path)))
   const attachmentFiles = listed.value.filter(({ path, file }) => !isTextFile(file) || linked.has(path))
   const attachments: readonly Attachment[] = attachmentFiles.map(({ path, file }) => ({
@@ -169,7 +177,7 @@ const take = async (
   )
   if (!opened.ok) return Err({ at: "hledger", trouble: opened.error })
 
-  await Promise.all(fetched.filter(({ path }) => !linked.has(path)).map(({ path, text, file }) => agree(bookId, agreementOf(path, file, text))))
+  await Promise.all(bookFiles.filter(({ path }) => !linked.has(path)).map(({ path, text, file }) => agree(bookId, agreementOf(path, file, text))))
   registerAttachmentLoader(bookId, async (path) => {
     const located = attachmentFiles.find((item) => item.path === path)
     if (located === undefined) return undefined
@@ -223,10 +231,11 @@ export const push = async (): Promise<Result<Outcome, Snag>> => {
   const reach = await reachable()
   if (!reach.ok) return reach
   const { token, open, remote } = reach.value
-  const changes = await changedFiles(open.bookId, open.source.files)
-  if (changes.length === 0) return Ok({ did: "nothing" })
   const tree = await filesIn(token, remote)
   if (!tree.ok) return tree
+  const repaired = await repairMisplacedBookConfig(token, remote, open, tree.value)
+  if (!repaired.ok) return repaired
+  const changes = await changedFiles(open.bookId, open.source.files)
 
   type Prepared = { readonly change: Unsent; readonly current?: LocatedFile; readonly agreement?: DriveAgreement }
   const prepared: readonly Result<Prepared, Snag>[] = await Promise.all(changes.map(async (change): Promise<Result<Prepared, Snag>> => {
@@ -241,7 +250,8 @@ export const push = async (): Promise<Result<Outcome, Snag>> => {
 
   const attachments = await pushAttachments(token, remote, open, tree.value)
   if (!attachments.ok) return attachments
-  const written: string[] = [...attachments.value]
+  if (changes.length === 0 && attachments.value.length === 0 && !repaired.value) return Ok({ did: "nothing" })
+  const written: string[] = repaired.value ? [BOOK_CONFIG_PATH, ...attachments.value] : [...attachments.value]
   for (const item of prepared.flatMap((result) => result.ok ? [result.value] : [])) {
     const saved = item.current === undefined
       ? await createAtPath(token, remote.folderId, item.change.path, item.change.after)
@@ -251,6 +261,33 @@ export const push = async (): Promise<Result<Outcome, Snag>> => {
     written.push(item.change.path)
   }
   return Ok({ did: "pushed", files: written.length })
+}
+
+/** Bring forward a settings file Drive placed under the folder from the old root-path calculation. */
+const repairMisplacedBookConfig = async (
+  token: string,
+  remote: GoogleDriveRemote,
+  open: OpenJournal,
+  files: readonly LocatedFile[],
+): Promise<Result<boolean, Snag>> => {
+  const config = open.source.files[BOOK_CONFIG_PATH]
+  const canonical = files.find(({ path }) => path === BOOK_CONFIG_PATH)
+  const misplacedPath = `${BOOK_CONFIG_PATH.slice(0, -1)}/${BOOK_CONFIG_PATH}`
+  const misplaced = files.find(({ path }) => path === misplacedPath)
+  if (config === undefined || canonical !== undefined || misplaced === undefined) return Ok(false)
+
+  const body = await getFileContent(token, misplaced.file.id)
+  if (!body.ok) return Err({ at: "drive", failure: body.error })
+  const agreement = await agreedOn(open.bookId, BOOK_CONFIG_PATH)
+  if (agreement !== undefined && (changedFromAgreement(misplaced.file, agreement) || body.value !== agreement.baseText)) {
+    return Err({ at: "conflict", path: BOOK_CONFIG_PATH })
+  }
+  if (agreement === undefined && body.value !== config) return Err({ at: "conflict", path: BOOK_CONFIG_PATH })
+
+  const created = await createAtPath(token, remote.folderId, BOOK_CONFIG_PATH, config)
+  if (!created.ok) return created
+  await agree(open.bookId, agreementOf(BOOK_CONFIG_PATH, created.value, config))
+  return Ok(true)
 }
 
 const pushAttachments = async (

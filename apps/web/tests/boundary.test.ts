@@ -129,8 +129,10 @@ describe("every edition", () => {
  * Everything a script or a model can reach goes through there, and it writes
  * only by way of `compose/commit.ts` and `journal/proposals.ts` — the two doors
  * that trial a change and, in the second case, hold it until somebody has seen
- * it. A capability that imported `putFiles` for itself would be a way to change
- * the books with no diff ever existing, and it would look like ordinary code.
+ * it. Book settings have their own writer, because their file is a companion
+ * rather than an accounting entry. A capability that imported `putFiles` for
+ * itself would be a way to change the books with no diff ever existing, and it
+ * would look like ordinary code.
  */
 describe("writing to the journal", () => {
   const WAYS = ["writeTransactions", "rewriteFile", "rewriteFiles", "putFiles", "openBringingMissing"] as const
@@ -152,6 +154,8 @@ describe("writing to the journal", () => {
       // The two doors everything without a screen goes through.
       "core/compose/commit.ts",
       "core/journal/proposals.ts",
+      // The one writer for the book's shared settings file.
+      "core/journal/book-settings.ts",
       // Pulling from remote providers, which bring text from away.
       "core/github/sync.ts",
       "core/google-drive/sync.ts",
