@@ -4,25 +4,27 @@ import { useLocation } from "@solidjs/router"
 import { Button } from "~/core/components/ui/button"
 import { SnagNote, outcomeWords } from "~/core/components/github-panel"
 import { behindNow, unsentNow } from "~/core/components/git/kept-in-view"
-import { GIT, addressOf, lookingAt, type Looking } from "~/core/components/git/looking"
+import { addressOf, lookingAt, type Looking } from "~/core/components/git/looking"
+
 import { agreements, token } from "~/core/github/kept"
 import { pull, push, type Outcome, type Snag } from "~/core/github/sync"
 import { journal } from "~/core/journal/store"
-import { appPath, pageOf } from "~/core/address/address"
+import { isGitHubRemote, isGoogleDriveRemote } from "~/core/journal/remote"
+import { REMOTES, appPath, pageOf } from "~/core/address/address"
 import { useMoves } from "~/core/address/moves"
 import { getOrUndefined, type Result } from "~/core/lib/monad"
 import { t } from "~/core/i18n"
 
 /**
- * The list beside source control, laid out as an editor's is: a message, the
- * buttons that send and take, and what is waiting to be sent.
+ * The destinations and actions available for the open journal, with the
+ * GitHub change list and history kept beside the provider choices.
  *
  * Taking is held back while anything is waiting, because taking replaces what
  * is here with the repository's copy. Sending first is also what settles two
  * devices having written: the entries from here are laid after the ones from
  * there, and then there is nothing left to take.
  */
-export function GitExplorer(props: {
+export function RemoteExplorer(props: {
   /** Called once something has been chosen here, whatever it was. */
   readonly onChosen?: () => void
 }): JSX.Element {
@@ -44,7 +46,7 @@ export function GitExplorer(props: {
   }
   const showing = (path: string): boolean => {
     const now = lookingAt(pageOf(location.hash))
-    return appPath(location.pathname) === GIT && now.at === "change" && now.path === path
+    return appPath(location.pathname) === REMOTES && now.at === "change" && now.path === path
   }
 
   const run = async (work: () => Promise<Result<Outcome, Snag>>): Promise<void> => {
@@ -71,10 +73,38 @@ export function GitExplorer(props: {
 
   const place = (): string => {
     const remote = open()?.remote
-    return remote === undefined ? "" : `${remote.owner}/${remote.repo}`
+    return !isGitHubRemote(remote) ? "" : `${remote.owner}/${remote.repo}`
   }
   const lookingAtConnection = (): boolean =>
-    appPath(location.pathname) === GIT && lookingAt(pageOf(location.hash)).at === "connection"
+    appPath(location.pathname) === REMOTES && lookingAt(pageOf(location.hash)).at === "connection"
+
+  if (isGoogleDriveRemote(open()?.remote)) {
+    const remote = open()?.remote
+    return (
+      <div class="flex flex-col gap-2 py-2">
+        <Heading>{t("gdrive.title")}</Heading>
+        <button
+          type="button"
+          onClick={() => go({ at: "drive" })}
+          title={remote?.provider === "google-drive" ? remote.folderId : undefined}
+          class="w-full truncate px-3 py-1 text-left text-xs font-mono hover:bg-accent hover:text-accent-foreground"
+        >
+          {remote?.provider === "google-drive" ? remote.folderName || remote.folderId : t("gdrive.title")}
+        </button>
+      </div>
+    )
+  }
+
+  if (open()?.remote === undefined && open()?.local !== undefined) {
+    return (
+      <div class="flex flex-col gap-2 py-2">
+        <Heading>{t("local.title")}</Heading>
+        <button type="button" onClick={() => go({ at: "local" })} class="w-full truncate px-3 py-1 text-left text-xs font-mono hover:bg-accent hover:text-accent-foreground">
+          {open()?.local?.handle.name}
+        </button>
+      </div>
+    )
+  }
 
   return (
     <div class="flex flex-col gap-2 py-2">
@@ -176,7 +206,7 @@ export function GitExplorer(props: {
           class="w-full px-3 py-1 text-left text-xs hover:bg-accent hover:text-accent-foreground"
           classList={{
             "bg-accent text-accent-foreground":
-              appPath(location.pathname) === GIT && lookingAt(pageOf(location.hash)).at === "history",
+              appPath(location.pathname) === REMOTES && lookingAt(pageOf(location.hash)).at === "history",
           }}
         >
           {t("git.graph")}

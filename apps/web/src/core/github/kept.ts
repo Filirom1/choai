@@ -78,7 +78,9 @@ export const keepToken = async (value: string): Promise<void> => {
  */
 export const forgetToken = async (): Promise<void> => {
   await within("readwrite", [REMOTE], (transaction) => {
-    transaction.objectStore(REMOTE).clear()
+    const store = transaction.objectStore(REMOTE)
+    store.delete(TOKEN)
+    store.delete(IDBKeyRange.bound("agreed:", "agreed:￿"))
   })
   moved()
 }

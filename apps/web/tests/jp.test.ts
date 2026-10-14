@@ -256,7 +256,7 @@ describe("what is known about the paper behind an entry", () => {
 })
 
 describe("where the document behind an entry actually is", () => {
-  const remote = { owner: "mrksye", repo: "books", branch: "main", path: "books/main.journal" }
+  const remote = { provider: "github" as const, owner: "mrksye", repo: "books", branch: "main", path: "books/main.journal" }
 
   test("it resolves against the journal's own directory, the way an include does", () => {
     expect(evidenceAt(remote, "papers/2026/09/a.pdf")).toBe(

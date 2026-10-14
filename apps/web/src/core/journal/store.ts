@@ -302,8 +302,18 @@ export const renameBook = async (name: string): Promise<Result<OpenJournal, Trou
 export const setRemote = async (remote: Remote): Promise<void> => {
   const current = getOrUndefined(opened())
   if (current === undefined) return
-  setOpened(Some({ ...current, remote }))
-  await keepOnThisDevice({ ...current, remote })
+  const next = { ...current, remote }
+  setOpened(Some(next))
+  await keepOnThisDevice(next)
+}
+
+/** Make the linked origin folder the one destination used for this book. */
+export const setLocalFolderActive = async (): Promise<void> => {
+  const current = getOrUndefined(opened())
+  if (current?.local === undefined) return
+  const { remote: _, ...next } = current
+  setOpened(Some(next))
+  await keepOnThisDevice(next)
 }
 
 /**

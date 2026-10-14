@@ -1,4 +1,5 @@
-import type { Remote } from "~/core/journal/kept"
+import type { Remote, GitHubRemote } from "~/core/journal/kept"
+import { isGitHubRemote } from "~/core/journal/remote"
 
 /**
  * Where the document behind an entry actually is.
@@ -34,7 +35,7 @@ const beside = (path: string): boolean =>
 const directoryOf = (path: string): string => path.slice(0, path.lastIndexOf("/") + 1)
 
 /** Where a companion path lands in the repository, as the repository names it. */
-export const inRepository = (remote: Remote, evidence: string): string | undefined =>
+export const inRepository = (remote: GitHubRemote, evidence: string): string | undefined =>
   beside(evidence) ? `${directoryOf(remote.path)}${evidence}` : undefined
 
 /**
@@ -48,7 +49,7 @@ export const evidenceAt = (
   remote: Remote | undefined,
   evidence: string,
 ): string | undefined => {
-  if (remote === undefined) return undefined
+  if (!isGitHubRemote(remote)) return undefined
 
   const at = inRepository(remote, evidence)
   const owner = remote.owner.trim()

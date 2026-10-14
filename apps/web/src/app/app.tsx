@@ -1,5 +1,5 @@
-import type { JSX, ParentProps } from "solid-js"
-import { Show, createEffect, createSignal, on, onCleanup, onMount, untrack } from "solid-js"
+import type { Accessor, JSX, ParentProps } from "solid-js"
+import { Show, createEffect, createResource, createSignal, on, onCleanup, onMount, untrack } from "solid-js"
 import { useLocation } from "@solidjs/router"
 import { Dynamic } from "solid-js/web"
 import { getOrUndefined } from "~/core/lib/monad"
@@ -7,7 +7,7 @@ import { getOrUndefined } from "~/core/lib/monad"
 import { ActivityBar, AuxPanel, Shell, SidePanel, TitlesBar, type ActivityItem } from "~/core/lib/solid-workbench-shell"
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/core/components/ui/tooltip"
 import { Button } from "~/core/components/ui/button"
-import { ChevronLeftIcon, FunnelIcon, RefreshIcon, PanelLeftIcon, PlusIcon, ImportIcon } from "~/core/lib/ui/icons"
+import { ChevronLeftIcon, FunnelIcon, RefreshIcon, PanelLeftIcon, PlusIcon, ImportIcon, CloudIcon } from "~/core/lib/ui/icons"
 import { ReportFilters } from "~/core/components/report-filters"
 import { filtersShown, toggleFilters } from "~/core/reports/filters"
 import { focusOf, narrowsByDate, unfocused, without } from "~/core/journal/terms"
@@ -18,6 +18,12 @@ import { ADD, FOOT, NAV, railOf, viewAt } from "./views"
 import type { View } from "~/edition/types"
 import { appName } from "~/edition"
 import { journal, reopenKept } from "~/core/journal/store"
+import { changedPaths } from "~/core/journal/local"
+import { isGitHubRemote, isGoogleDriveRemote } from "~/core/journal/remote"
+import { agreements as githubAgreements } from "~/core/github/kept"
+import { agreementRevision as driveAgreementRevision } from "~/core/google-drive/kept"
+import { unsent as githubUnsent } from "~/core/github/sync"
+import { unsent as driveUnsent } from "~/core/google-drive"
 import { searchFor, useQuery } from "~/core/journal/query"
 import { JevKeyPanel } from "~/core/components/jev-key-panel"
 import { AiImportPanel } from "~/core/components/ai-import-panel"
@@ -36,6 +42,7 @@ import { narrow, overHalf, viewportWidth } from "~/core/lib/narrow"
 import { actionFor } from "~/core/lib/shortcuts"
 import { ShortcutsHelp } from "~/core/components/shortcuts-help"
 import { BookSwitcher } from "~/core/components/book-switcher"
+import { BackupButton } from "~/core/components/backup-button"
 import { t } from "~/core/i18n"
 
 /** What the dock is called, by what is in it. */
@@ -100,6 +107,7 @@ export function Layout(props: ParentProps) {
   const [railVisible, setRailVisible] = createSignal(true)
   const [panelOpen, setPanelOpen] = createSignal(true)
   const [searchBox, setSearchBox] = createSignal<HTMLInputElement>()
+  const [saveRequest, setSaveRequest] = createSignal(0)
 
   /**
    * The cursor into the query, with what is there already selected, so the
@@ -393,6 +401,7 @@ export function Layout(props: ParentProps) {
       if (action === "search") toTheQuery()
       if (action === "compose") dock.is("composing") ? dock.close() : compose()
       if (action === "import") dock.is("importing") || dock.is("connecting") ? putAI() : importing()
+      if (action === "save") setSaveRequest((request) => request + 1)
       if (action === "togglePanels") toggleChrome()
       if (action === "close") putDown()
     }
@@ -627,6 +636,7 @@ export function Layout(props: ParentProps) {
           class="flex min-h-full flex-col"
           style={{ "--stuck-above": snapped() && !chromeShowing() ? "2.25rem" : "0px" }}
         >
+          <BackupNotice saveRequest={saveRequest} />
           {/* Above the work rather than in it, and only where the work is a
               screen of its own: with the rail and the explorer put away there
               is nothing else on this screen that leads back to them. Sticky,
@@ -662,6 +672,43 @@ export function Layout(props: ParentProps) {
  * looks like one that is. Read off the query, so a date typed into the title
  * bar marks it as well.
  */
+function BackupNotice(props: { readonly saveRequest: Accessor<number> }): JSX.Element {
+  const open = () => getOrUndefined(journal())
+  const [hasUnsentFile, { refetch }] = createResource(
+    () => {
+      const current = open()
+      return current === undefined
+        ? undefined
+        : {
+            current,
+            agreements: isGitHubRemote(current.remote)
+              ? githubAgreements()
+              : isGoogleDriveRemote(current.remote) ? driveAgreementRevision() : undefined,
+          }
+    },
+    async ({ current }) => {
+      if (isGitHubRemote(current.remote)) return (await githubUnsent(current)).length > 0
+      if (isGoogleDriveRemote(current.remote)) return (await driveUnsent(current)).length > 0
+      return current.local !== undefined && changedPaths(current.local.base, current.source.files).length > 0
+    },
+  )
+  const show = (): boolean =>
+    (open()?.remote !== undefined || open()?.local !== undefined) && hasUnsentFile() === true
+
+  return (
+    <Show when={show()}>
+      <aside class="mb-3 flex flex-wrap items-center gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm" aria-label={t("remotes.warningTitle")}>
+        <CloudIcon class="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
+        <div class="min-w-0 flex-1">
+          <p class="font-medium">{t("remotes.warningTitle")}</p>
+          <p class="text-xs text-muted-foreground">{t("remotes.warningBody")}</p>
+        </div>
+        <BackupButton onSaved={refetch} saveRequest={props.saveRequest} />
+      </aside>
+    </Show>
+  )
+}
+
 function FilterButton(): JSX.Element {
   const [query] = useQuery()
   const reading = createReading(query)

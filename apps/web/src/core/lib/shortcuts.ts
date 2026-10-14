@@ -5,7 +5,7 @@
  * shortcut cannot be listed without working or work without being listed.
  */
 
-export type Action = "search" | "compose" | "import" | "togglePanels" | "close"
+export type Action = "search" | "compose" | "import" | "save" | "togglePanels" | "close"
 
 interface Shortcut {
   readonly action: Action
@@ -18,6 +18,7 @@ interface Shortcut {
     | "shortcuts.search"
     | "shortcuts.compose"
     | "shortcuts.import"
+    | "shortcuts.save"
     | "shortcuts.togglePanels"
     | "shortcuts.close"
 }
@@ -26,6 +27,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { action: "search", withCommand: true, key: "p", labelKey: "shortcuts.search" },
   { action: "compose", withCommand: true, key: "k", labelKey: "shortcuts.compose" },
   { action: "import", withCommand: true, key: "j", labelKey: "shortcuts.import" },
+  { action: "save", withCommand: true, key: "s", labelKey: "shortcuts.save" },
   { action: "togglePanels", withCommand: true, key: "b", labelKey: "shortcuts.togglePanels" },
   { action: "close", withCommand: false, key: "escape", labelKey: "shortcuts.close" },
 ]

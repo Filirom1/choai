@@ -20,16 +20,9 @@
 import { STORE, filesOf, rowsOf, within } from "~/core/lib/idb"
 import type { Attachment } from "./store"
 import type { LocalFolder } from "./local"
+import { normalizeRemote, type Remote } from "./remote"
 
-/** Where a book is kept away from this device. */
-export interface Remote {
-  readonly owner: string
-  readonly repo: string
-  /** Empty means the repository's default branch. */
-  readonly branch: string
-  /** Path of the entry file in the repository. */
-  readonly path: string
-}
+export type { GitHubRemote, GoogleDriveRemote, Remote } from "./remote"
 
 /** A book, without the weight of its text. */
 export interface BookCard {
@@ -96,11 +89,19 @@ export const askToKeep = (): void => {
 export const keptForGood = async (): Promise<boolean> => (await navigator.storage?.persisted?.()) ?? false
 
 /** Every book on this device, most recently opened first. */
+type PersistedBook = Omit<BookCard, "remote"> & { readonly remote?: unknown }
+
+const normalizedBook = (book: PersistedBook): BookCard => {
+  const { remote: _, ...card } = book
+  const remote = normalizeRemote(book.remote)
+  return { ...card, ...(remote === undefined ? {} : { remote }) }
+}
+
 export const allBooks = async (): Promise<readonly BookCard[]> => {
   const rows = await within("readonly", [BOOKS], (transaction) =>
-    transaction.objectStore(BOOKS).getAll() as IDBRequest<BookCard[]>,
+    transaction.objectStore(BOOKS).getAll() as IDBRequest<PersistedBook[]>,
   )
-  return rowsOf(rows).sort((a, b) => b.openedAt - a.openedAt)
+  return rowsOf(rows).map(normalizedBook).sort((a, b) => b.openedAt - a.openedAt)
 }
 
 /** Which book was left open, if any. */
@@ -121,7 +122,7 @@ export const bookWithFiles = async (id: string): Promise<KeptBook | undefined> =
   })
   if (card.result === undefined) return undefined
   return {
-    ...card.result,
+    ...normalizedBook(card.result as PersistedBook),
     files: Object.fromEntries(rowsOf(files).flatMap((file) => (file.text === undefined ? [] : [[file.path, file.text]]))),
     attachments: rowsOf(attachments).map(({ path, type, size }) => ({ path, type, size })),
   }
@@ -171,7 +172,9 @@ export const forgetBook = async (id: string): Promise<void> => {
     transaction.objectStore(BOOKS).delete(id)
     transaction.objectStore(FILES).delete(filesOf(id))
     transaction.objectStore(ATTACHMENTS).delete(filesOf(id))
-    transaction.objectStore(STORE.remote).delete(IDBKeyRange.bound(`agreed:${id}:`, `agreed:${id}:￿`))
+    const remote = transaction.objectStore(STORE.remote)
+    remote.delete(IDBKeyRange.bound(`agreed:${id}:`, `agreed:${id}:￿`))
+    remote.delete(IDBKeyRange.bound(`gdrive:agreed:${id}:`, `gdrive:agreed:${id}:￿`))
     const state = transaction.objectStore(STATE)
     const open = state.get(CURRENT) as IDBRequest<CurrentBook | undefined>
     open.onsuccess = () => {

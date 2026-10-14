@@ -1,17 +1,20 @@
 import { edition } from "~/edition"
 import { viewsWith, type View } from "~/edition/types"
-import { ADD, JOURNAL, RECONCILIATION, REPORTS, SOURCE } from "~/core/address/address"
-import { GitExplorer } from "~/core/explorer/GitExplorer"
+import { ADD, JOURNAL, RECONCILIATION, REMOTES, REPORTS, SOURCE } from "~/core/address/address"
+import { RemoteExplorer } from "~/core/explorer/RemoteExplorer"
 import { behindNow } from "~/core/components/git/kept-in-view"
 import { JournalExplorer } from "~/core/explorer/JournalExplorer"
 import { SourceExplorer } from "~/core/explorer/SourceExplorer"
 import { SettingsExplorer } from "~/core/explorer/SettingsExplorer"
 import { ReportsExplorer } from "~/core/explorer/ReportsExplorer"
 import { t } from "~/core/i18n"
+import { journal } from "~/core/journal/store"
+import { isGitHubRemote } from "~/core/journal/remote"
+import { getOrUndefined } from "~/core/lib/monad"
 import { focusesAnAccount, namesAccounts } from "~/core/journal/terms"
-import { FileCodeIcon, GitBranchIcon, ReceiptIcon, ReconciliationIcon, ScaleIcon, SettingsIcon } from "~/core/lib/ui/icons"
+import { CloudIcon, FileCodeIcon, ReceiptIcon, ReconciliationIcon, ScaleIcon, SettingsIcon } from "~/core/lib/ui/icons"
 import Add from "~/core/routes/add"
-import Git from "~/core/routes/git"
+import Remotes from "~/core/routes/remotes"
 import Journal from "~/core/routes/journal"
 import Licenses from "~/core/routes/licenses"
 import Reports from "~/core/routes/reports"
@@ -83,13 +86,13 @@ const CORE: readonly View[] = [
   },
   // Right after the text, because the text is what it sends and takes.
   {
-    href: "/git",
-    label: () => t("nav.git"),
-    Icon: GitBranchIcon,
-    Explorer: GitExplorer,
-    page: Git,
+    href: REMOTES,
+    label: () => t("nav.remotes"),
+    Icon: CloudIcon,
+    Explorer: RemoteExplorer,
+    page: Remotes,
     writes: false,
-    attention: () => behindNow().length > 0,
+    attention: () => isGitHubRemote(getOrUndefined(journal())?.remote) && behindNow().length > 0,
     reached: { from: "rail" },
   },
   // Not one of the books, so it sits at the foot of the rail, apart from the views.

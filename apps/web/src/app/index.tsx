@@ -9,7 +9,7 @@
 
 /* @refresh reload */
 import { render } from "solid-js/web"
-import { Router, type RouteDefinition } from "@solidjs/router"
+import { Navigate, Router, useLocation, type RouteDefinition } from "@solidjs/router"
 
 import "./app.css"
 /* Puts window.choai in place before anything is drawn. */
@@ -27,10 +27,15 @@ import { VIEWS } from "./views"
  * once is what stops a screen an edition adds from being reachable everywhere
  * except in the router.
  */
-const ROUTES: readonly RouteDefinition[] = VIEWS.map((view) => ({
-  path: view.href,
-  component: view.page,
-}))
+const LegacyGitRoute = () => {
+  const location = useLocation()
+  return <Navigate href={`/remotes${location.search}${location.hash}`} />
+}
+
+const ROUTES: readonly RouteDefinition[] = [
+  ...VIEWS.map((view) => ({ path: view.href, component: view.page })),
+  { path: "/git", component: LegacyGitRoute },
+]
 
 /**
  * The way in, taken before the router reads the address.

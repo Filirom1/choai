@@ -1,5 +1,5 @@
 import { Err, Ok, type Result } from "~/core/lib/monad"
-import type { Remote } from "~/core/journal/kept"
+import type { GitHubRemote } from "~/core/journal/kept"
 import {
   PAGE,
   branches,
@@ -45,7 +45,7 @@ export interface History {
   readonly older: boolean
 }
 
-const repositoryOf = (remote: Remote): Repository => ({ owner: remote.owner.trim(), repo: remote.repo.trim() })
+const repositoryOf = (remote: GitHubRemote): Repository => ({ owner: remote.owner.trim(), repo: remote.repo.trim() })
 
 const headsOf = (listed: readonly Branch[]): ReadonlyMap<string, readonly string[]> =>
   listed.reduce(
@@ -120,7 +120,7 @@ export const readHistory = async (before: Read | undefined): Promise<Result<Read
   const reach = await reachable()
   if (!reach.ok) return reach
   const key = reach.value.token
-  const remote = reach.value.open.remote as Remote
+  const remote = reach.value.remote
   const repository = repositoryOf(remote)
 
   const own = remote.branch.trim()
@@ -142,7 +142,7 @@ export const readOlder = async (read: Read, count: number): Promise<Result<Read,
   if (all.length >= count) return Ok(read)
   const reach = await reachable()
   if (!reach.ok) return reach
-  const repository = repositoryOf(reach.value.open.remote as Remote)
+  const repository = repositoryOf(reach.value.remote)
   const commits = await readFrom(reach.value.token, repository, edgeOf(all, read.commits), read.commits)
   return commits.ok ? Ok({ ...read, commits: commits.value }) : commits
 }
@@ -151,6 +151,6 @@ export const readOlder = async (read: Read, count: number): Promise<Result<Read,
 export const detailOf = async (sha: string): Promise<Result<CommitDetail, Snag>> => {
   const reach = await reachable()
   if (!reach.ok) return reach
-  const detail = await commitDetail(reach.value.token, repositoryOf(reach.value.open.remote as Remote), sha)
+  const detail = await commitDetail(reach.value.token, repositoryOf(reach.value.remote), sha)
   return detail.ok ? detail : Err(snagOf(detail.error))
 }

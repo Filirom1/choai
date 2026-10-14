@@ -9,6 +9,7 @@ import { Button } from "~/core/components/ui/button"
 import { t } from "~/core/i18n"
 import { TroubleNote } from "./trouble-note"
 import { TakeFromGitHub } from "./take-from-github"
+import { TakeFromGoogleDrive } from "./take-from-google-drive"
 
 /**
  * What there is to do when no journal is open yet.
@@ -105,6 +106,7 @@ function Choices(props: { adding: boolean }): JSX.Element {
       </Show>
 
       <TakeFromGitHub />
+      <TakeFromGoogleDrive />
 
       {/* Last, and set apart. The demo is not a third way to start your books —
           it is somebody else's, to look around in — and standing it beside the

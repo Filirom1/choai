@@ -24,6 +24,9 @@ export const JOURNAL = "/journal"
 /** The dedicated reconciliation screen. Its account and date remain in the query. */
 export const RECONCILIATION = "/reconcile"
 
+/** The one place to choose and manage how a journal is backed up. */
+export const REMOTES = "/remotes"
+
 /**
  * The journal's own text. Its part of the address is the file on screen,
  * encoded, so a name holding the joining mark cannot be read as a layer.
@@ -64,6 +67,7 @@ export const ADD = "/add"
  * is the only thing that can say which book the place they type is for.
  */
 export const ADD_FROM_GITHUB = `${ADD}#github`
+export const ADD_FROM_GOOGLE_DRIVE = `${ADD}#gdrive`
 
 export const ENTRY = "/"
 

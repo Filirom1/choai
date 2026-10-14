@@ -8,11 +8,12 @@ import { whoami, type Failure } from "~/core/github/api"
 import { pull, pullAsNewBook, push, type Outcome, type Snag } from "~/core/github/sync"
 import { journal, setRemote } from "~/core/journal/store"
 import { putDown } from "~/core/journal/switching"
-import type { Remote } from "~/core/journal/kept"
+import type { GitHubRemote } from "~/core/journal/kept"
+import { isGitHubRemote } from "~/core/journal/remote"
 import { getOrUndefined } from "~/core/lib/monad"
 import { t } from "~/core/i18n"
 
-const NOWHERE: Remote = { owner: "", repo: "", branch: "", path: "" }
+const NOWHERE: GitHubRemote = { provider: "github", owner: "", repo: "", branch: "", path: "" }
 
 /**
  * Which book the place in the boxes is for.
@@ -36,14 +37,17 @@ export type Bound =
 export function GitHubPanel(props: { readonly bound: Bound }): JSX.Element {
   const [saved, { refetch }] = createResource(token)
   const [typed, setTyped] = createSignal<string | undefined>(undefined)
-  const [edited, setEdited] = createSignal<Remote | undefined>(undefined)
+  const [edited, setEdited] = createSignal<GitHubRemote | undefined>(undefined)
   const [busy, setBusy] = createSignal(false)
   const [said, setSaid] = createSignal<string | undefined>(undefined)
   const [snag, setSnag] = createSignal<Snag | undefined>(undefined)
 
   const forNewBook = (): boolean => props.bound.into === "new-book"
   /** What is in the boxes: what is being typed, or what the book already says. */
-  const place = (): Remote => edited() ?? (forNewBook() ? undefined : getOrUndefined(journal())?.remote) ?? NOWHERE
+  const place = (): GitHubRemote => {
+    const remote = getOrUndefined(journal())?.remote
+    return edited() ?? (forNewBook() || !isGitHubRemote(remote) ? undefined : remote) ?? NOWHERE
+  }
   /**
    * The token as it will be sent: what is being typed, or what was saved.
    *
@@ -53,7 +57,7 @@ export function GitHubPanel(props: { readonly bound: Bound }): JSX.Element {
    * reads as "this token is no good" when there is nothing wrong with it.
    */
   const key = (): string => (typed() ?? saved() ?? "").trim()
-  const change = (part: Partial<Remote>): void => {
+  const change = (part: Partial<GitHubRemote>): void => {
     setEdited({ ...place(), ...part })
   }
 

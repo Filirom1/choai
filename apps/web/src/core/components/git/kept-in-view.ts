@@ -4,6 +4,7 @@ import { agreements, token } from "~/core/github/kept"
 import { STEP, drawn, readHistory, readOlder, type History, type Read } from "~/core/github/history"
 import { behind, unsent, type Snag, type Unsent } from "~/core/github/sync"
 import { journal } from "~/core/journal/store"
+import { isGitHubRemote } from "~/core/journal/remote"
 import { getOrUndefined, type Result } from "~/core/lib/monad"
 
 /**
@@ -36,7 +37,7 @@ const [moved] = createRoot(() =>
   createResource(
     () => {
       const open = getOrUndefined(journal())
-      return open?.remote === undefined || open.remote.path === "" ? undefined : `${open.bookId}:${agreements()}`
+      return !isGitHubRemote(open?.remote) || open.remote.path === "" ? undefined : `${open.bookId}:${agreements()}`
     },
     async (): Promise<readonly string[]> => {
       const asked = await behind()
@@ -56,7 +57,7 @@ const [saved] = createRoot(() => createResource(agreements, () => token()))
  * it can be done.
  */
 export const connectedNow = (): boolean =>
-  (saved() ?? "") !== "" && (getOrUndefined(journal())?.remote?.path ?? "") !== ""
+  (saved() ?? "") !== "" && isGitHubRemote(getOrUndefined(journal())?.remote) && getOrUndefined(journal())?.remote?.path !== ""
 
 /**
  * The history as the screen has it.
@@ -87,7 +88,7 @@ const [wanted, want] = createSignal(false)
  */
 const placeOf = (): string => {
   const remote = getOrUndefined(journal())?.remote
-  return remote === undefined ? "" : [remote.owner, remote.repo, remote.branch, remote.path].join("\n")
+  return !isGitHubRemote(remote) ? "" : [remote.owner, remote.repo, remote.branch, remote.path].join("\n")
 }
 
 const readNow = (): Read | undefined => {

@@ -116,8 +116,8 @@ describe("every edition", () => {
  * `writes: false` on a capability is a claim, and the e2e checks it by calling
  * every capability that makes it and comparing the journal byte for byte. This
  * is the other half, and the half that catches a fault before it can be run: the
- * ways of writing are four functions in `journal/store.ts`, and the modules that
- * reach for one of them are named here.
+ * ways of changing the held books are functions in `journal/store.ts`, and the
+ * modules that reach for one of them are named here.
  *
  * A list rather than a type because the write path in this app is not a handle
  * that gets passed to whoever is allowed one — it is module state, reached by
@@ -133,9 +133,9 @@ describe("every edition", () => {
  * the books with no diff ever existing, and it would look like ordinary code.
  */
 describe("writing to the journal", () => {
-  const WAYS = ["writeTransactions", "rewriteFile", "rewriteFiles", "putFiles"] as const
+  const WAYS = ["writeTransactions", "rewriteFile", "rewriteFiles", "putFiles", "openBringingMissing"] as const
 
-  /** Every module that names one of the four, wherever in it the name appears. */
+  /** Every module that names a store write door, wherever in it the name appears. */
   const writers = (): readonly string[] =>
     modules()
       .filter((path) => path !== "core/journal/store.ts")
@@ -152,8 +152,9 @@ describe("writing to the journal", () => {
       // The two doors everything without a screen goes through.
       "core/compose/commit.ts",
       "core/journal/proposals.ts",
-      // Pulling from GitHub, which is the one write whose text came from away.
+      // Pulling from remote providers, which bring text from away.
       "core/github/sync.ts",
+      "core/google-drive/sync.ts",
       // One edition's own screens, on the same footing as core's.
       "editions/jp/ui/writing.ts",
     ].sort())

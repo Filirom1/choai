@@ -1,6 +1,7 @@
 import { Err, Ok, getOrUndefined, type Result } from "~/core/lib/monad"
 import { journal, openBringingMissing, registerAttachmentLoader, rewriteFile, type Attachment, type OpenJournal } from "~/core/journal/store"
-import { putAttachments, type Remote } from "~/core/journal/kept"
+import { putAttachments, type GitHubRemote } from "~/core/journal/kept"
+import { isGitHubRemote } from "~/core/journal/remote"
 import type { Trouble } from "~/core/hledger/wire"
 import { fetchBinary, fetchFile, putFile, repositoryFiles, type Failure, type Where } from "./api"
 import { agree, agreedOn, token, type Agreed } from "./kept"
@@ -40,7 +41,7 @@ const directoryOf = (path: string): string => path.slice(0, path.lastIndexOf("/"
 const mimeOf = (path: string): string => ({ pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp" }[path.split(".").pop()?.toLowerCase() ?? ""] ?? "application/octet-stream")
 const nameOf = (path: string): string => path.slice(path.lastIndexOf("/") + 1)
 
-const where = (remote: Remote, path: string): Where => ({
+const where = (remote: GitHubRemote, path: string): Where => ({
   owner: remote.owner.trim(),
   repo: remote.repo.trim(),
   branch: remote.branch.trim(),
@@ -53,13 +54,13 @@ const where = (remote: Remote, path: string): Where => ({
  * Two different absences, because they are fixed in two different screens — the
  * token once for the account, the place for this book.
  */
-export const reachable = async (): Promise<Result<{ token: string; open: OpenJournal }, Snag>> => {
+export const reachable = async (): Promise<Result<{ token: string; open: OpenJournal; remote: GitHubRemote }, Snag>> => {
   const key = await token()
   if (key === undefined || key === "") return Err({ at: "not-connected" })
   const open = getOrUndefined(journal())
   if (open === undefined) return Err({ at: "no-journal" })
-  if (open.remote === undefined || open.remote.path === "") return Err({ at: "no-place" })
-  return Ok({ token: key, open })
+  if (!isGitHubRemote(open.remote) || open.remote.path === "") return Err({ at: "no-place" })
+  return Ok({ token: key, open, remote: open.remote })
 }
 
 /**
@@ -72,7 +73,7 @@ export const reachable = async (): Promise<Result<{ token: string; open: OpenJou
 export const pull = async (): Promise<Result<Outcome, Snag>> => {
   const reach = await reachable()
   if (!reach.ok) return reach
-  return take(reach.value.token, reach.value.open.remote as Remote, reach.value.open.bookId, reach.value.open.source.label)
+  return take(reach.value.token, reach.value.remote, reach.value.open.bookId, reach.value.open.source.label)
 }
 
 /**
@@ -82,7 +83,7 @@ export const pull = async (): Promise<Result<Outcome, Snag>> => {
  * made here first and then thrown away. The name is the repository's, which is
  * what the reader called it when they made it, and it can be changed after.
  */
-export const pullAsNewBook = async (remote: Remote): Promise<Result<Outcome, Snag>> => {
+export const pullAsNewBook = async (remote: GitHubRemote): Promise<Result<Outcome, Snag>> => {
   const key = await token()
   if (key === undefined || key === "") return Err({ at: "not-connected" })
   if (remote.path === "") return Err({ at: "no-place" })
@@ -91,7 +92,7 @@ export const pullAsNewBook = async (remote: Remote): Promise<Result<Outcome, Sna
 
 const take = async (
   key: string,
-  remote: Remote,
+  remote: GitHubRemote,
   into: string,
   name: string,
 ): Promise<Result<Outcome, Snag>> => {
@@ -205,7 +206,7 @@ export const behind = async (): Promise<Result<readonly string[], Snag>> => {
   const reach = await reachable()
   if (!reach.ok) return reach
   const { token: key, open } = reach.value
-  const remote = open.remote as Remote
+  const remote = reach.value.remote
 
   const agreed = (
     await Promise.all(Object.keys(open.source.files).map((path) => agreedOn(open.bookId, path)))
@@ -231,7 +232,7 @@ export const push = async (message?: string): Promise<Result<Outcome, Snag>> => 
   const reach = await reachable()
   if (!reach.ok) return reach
   const { token: key, open } = reach.value
-  const remote = open.remote as Remote
+  const remote = reach.value.remote
 
   const changed = await changedFiles(open.bookId, open.source.files)
   if (changed.length === 0) return Ok({ did: "nothing" })
@@ -255,7 +256,7 @@ export const push = async (message?: string): Promise<Result<Outcome, Snag>> => 
 const send = async (
   key: string,
   book: string,
-  remote: Remote,
+  remote: GitHubRemote,
   path: string,
   text: string,
   agreed: Agreed | undefined,
@@ -286,7 +287,7 @@ const send = async (
 const settle = async (
   key: string,
   book: string,
-  remote: Remote,
+  remote: GitHubRemote,
   path: string,
   text: string,
   repoPath: string,
