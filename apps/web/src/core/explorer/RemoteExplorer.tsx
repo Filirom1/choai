@@ -91,6 +91,15 @@ export function RemoteExplorer(props: {
         >
           {remote?.provider === "google-drive" ? remote.folderName || remote.folderId : t("gdrive.title")}
         </button>
+        <Heading>{t("gdrive.history")}</Heading>
+        <button
+          type="button"
+          onClick={() => go({ at: "drive-history", revision: undefined })}
+          class="w-full px-3 py-1 text-left text-xs hover:bg-accent hover:text-accent-foreground"
+          classList={{ "bg-accent text-accent-foreground": lookingAt(pageOf(location.hash)).at === "drive-history" }}
+        >
+          {t("gdrive.historyGraph")}
+        </button>
       </div>
     )
   }

@@ -16,6 +16,13 @@ export interface DriveFile {
   readonly headRevisionId?: string
 }
 
+export interface DriveRevision {
+  readonly id: string
+  readonly modifiedTime?: string
+  readonly keepForever?: boolean
+  readonly lastModifyingUser?: { readonly displayName?: string; readonly emailAddress?: string }
+}
+
 export type Failure =
   | { readonly kind: "offline" }
   | { readonly kind: "unauthorised" }
@@ -73,6 +80,42 @@ export const getFileMetadata = async (token: string, fileId: string): Promise<Re
 
 export const getFileContent = async (token: string, fileId: string): Promise<Result<string, Failure>> => {
   const response = await call(`${ROOT}/files/${encodeURIComponent(fileId)}?alt=media`, { headers: authHeaders(token) })
+  if (!response.ok) return response
+  if (!response.value.ok) return Err(failureOf(response.value))
+  try {
+    return Ok(await response.value.text())
+  } catch {
+    return Err({ kind: "refused", status: response.value.status })
+  }
+}
+
+export const listRevisions = async (
+  token: string,
+  fileId: string,
+  pageToken?: string,
+  found: readonly DriveRevision[] = [],
+): Promise<Result<readonly DriveRevision[], Failure>> => {
+  const query = new URLSearchParams({
+    fields: "nextPageToken,revisions(id,modifiedTime,keepForever,lastModifyingUser(displayName,emailAddress))",
+    pageSize: "1000",
+    ...(pageToken === undefined ? {} : { pageToken }),
+  })
+  const response = await call(`${ROOT}/files/${encodeURIComponent(fileId)}/revisions?${query}`, { headers: authHeaders(token) })
+  if (!response.ok) return response
+  if (!response.value.ok) return Err(failureOf(response.value))
+  const decoded = await json<{ readonly revisions?: readonly DriveRevision[]; readonly nextPageToken?: string }>(response.value)
+  if (!decoded.ok) return decoded
+  const all = [...found, ...(decoded.value.revisions ?? [])]
+  return decoded.value.nextPageToken === undefined
+    ? Ok(all)
+    : listRevisions(token, fileId, decoded.value.nextPageToken, all)
+}
+
+export const getRevisionContent = async (token: string, fileId: string, revisionId: string): Promise<Result<string, Failure>> => {
+  const response = await call(
+    `${ROOT}/files/${encodeURIComponent(fileId)}/revisions/${encodeURIComponent(revisionId)}?alt=media`,
+    { headers: authHeaders(token) },
+  )
   if (!response.ok) return response
   if (!response.value.ok) return Err(failureOf(response.value))
   try {

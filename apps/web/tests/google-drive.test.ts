@@ -1,6 +1,6 @@
 import { describe, expect, spyOn, test } from "bun:test"
 
-import { createBinary, listFilesInFolder, listSharedWithMe, listStarred, multipartBody, pinRevision, trashFile, updateBlob, updateFile } from "../src/core/google-drive/api"
+import { createBinary, getRevisionContent, listFilesInFolder, listRevisions, listSharedWithMe, listStarred, multipartBody, pinRevision, trashFile, updateBlob, updateFile } from "../src/core/google-drive/api"
 import { changedFromAgreement, type DriveAgreement } from "../src/core/google-drive/kept"
 import { fileName, parentPath, relativePath, safePath } from "../src/core/google-drive/paths"
 
@@ -85,6 +85,23 @@ describe("Google Drive request bodies", () => {
     expect(init?.method).toBe("PATCH")
     expect(new Headers(init?.headers).get("Content-Type")).toBe("image/png")
     expect(init?.body).toBeInstanceOf(Blob)
+    fetch.mockRestore()
+  })
+
+  test("lists revisions and reads an older revision's text", async () => {
+    const fetch = spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ revisions: [{ id: "rev-1", modifiedTime: "2026-02-01T00:00:00Z" }] })))
+      .mockResolvedValueOnce(new Response("2026-02-01 Opening\n"))
+    const revisions = await listRevisions("token", "drive-file")
+    const content = await getRevisionContent("token", "drive-file", "rev-1")
+    const [listUrl, listInit] = fetch.mock.calls[0] ?? []
+    const [contentUrl, contentInit] = fetch.mock.calls[1] ?? []
+    expect(revisions).toMatchObject({ ok: true, value: [{ id: "rev-1" }] })
+    expect(content).toEqual({ ok: true, value: "2026-02-01 Opening\n" })
+    expect(String(listUrl)).toContain("/files/drive-file/revisions?")
+    expect(new Headers(listInit?.headers).get("Authorization")).toBe("Bearer token")
+    expect(String(contentUrl)).toContain("/files/drive-file/revisions/rev-1?alt=media")
+    expect(new Headers(contentInit?.headers).get("Authorization")).toBe("Bearer token")
     fetch.mockRestore()
   })
 

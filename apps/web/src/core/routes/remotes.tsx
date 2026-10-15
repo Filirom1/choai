@@ -2,13 +2,14 @@ import { For, Show, createSignal, type JSX } from "solid-js"
 import { useLocation } from "@solidjs/router"
 
 import { GoogleDrivePanel } from "~/core/components/google-drive-panel"
+import { GoogleDriveHistory } from "~/core/components/google-drive-history"
 import { Button } from "~/core/components/ui/button"
 import { LocalSyncPanel } from "~/core/components/local-sync-panel"
 import { pageOf } from "~/core/address/address"
 import { addressOf, lookingAt } from "~/core/components/git/looking"
 import { useMoves } from "~/core/address/moves"
 import { journal, setLocalFolderActive } from "~/core/journal/store"
-import { isGoogleDriveRemote } from "~/core/journal/remote"
+import { isGoogleDriveRemote, type GoogleDriveRemote } from "~/core/journal/remote"
 import { getOrUndefined } from "~/core/lib/monad"
 import { t } from "~/core/i18n"
 import Git from "./git"
@@ -24,6 +25,14 @@ export default function Remotes(): JSX.Element {
   const showingDrive = (): boolean =>
     looking().at === "drive" || (looking().at !== "connection" && isGoogleDriveRemote(current()?.remote))
   const active = () => current()?.remote?.provider ?? (current()?.local === undefined ? undefined : "local")
+  const selectedDriveRevision = () => {
+    const now = looking()
+    return now.at === "drive-history" ? now.revision : undefined
+  }
+  const driveRemote = (): GoogleDriveRemote | undefined => {
+    const remote = current()?.remote
+    return isGoogleDriveRemote(remote) ? remote : undefined
+  }
   const choices = [
     { provider: "github", title: t("remotes.github"), looking: { at: "connection" } as const },
     { provider: "google-drive", title: t("remotes.drive"), looking: { at: "drive" } as const },
@@ -35,7 +44,7 @@ export default function Remotes(): JSX.Element {
     if (destination !== undefined) moves.goTo(addressOf(destination.looking))
   }
   return (
-    <div class="mx-auto flex w-full max-w-3xl flex-col gap-5">
+    <div class="flex w-full flex-col gap-5">
       <header class="flex flex-col gap-1">
         <h1 class="text-xl font-semibold">{t("remotes.title")}</h1>
         <p class="text-sm text-muted-foreground">{t("remotes.lead")}</p>
@@ -61,20 +70,30 @@ export default function Remotes(): JSX.Element {
       </section>
       <Show when={showingLocal()} fallback={
         <Show when={showingDrive()} fallback={<Git />}>
-          <Show when={current() === undefined || importingFromDrive()} fallback={
-            <>
-              <Button type="button" variant="outline" onClick={() => setImportingFromDrive(true)}>
-                {t("books.fromGoogleDrive")}
-              </Button>
-              <GoogleDrivePanel bound={{ into: "this-book" }} />
-            </>
-          }>
-            <Show when={current() !== undefined}>
-              <Button type="button" variant="ghost" onClick={() => setImportingFromDrive(false)}>
-                {t("gdrive.manage")}
-              </Button>
+          <Show when={looking().at === "drive-history"} fallback={
+            <Show when={current() === undefined || importingFromDrive()} fallback={
+              <>
+                <Button type="button" variant="outline" onClick={() => setImportingFromDrive(true)}>
+                  {t("books.fromGoogleDrive")}
+                </Button>
+                <GoogleDrivePanel bound={{ into: "this-book" }} />
+              </>
+            }>
+              <Show when={current() !== undefined}>
+                <Button type="button" variant="ghost" onClick={() => setImportingFromDrive(false)}>
+                  {t("gdrive.manage")}
+                </Button>
+              </Show>
+              <GoogleDrivePanel bound={{ into: "new-book", taken: moves.toTheJournal }} />
             </Show>
-            <GoogleDrivePanel bound={{ into: "new-book", taken: moves.toTheJournal }} />
+          }>
+            <Show when={driveRemote()}>{(remote) => (
+              <GoogleDriveHistory
+                remote={remote()}
+                revision={selectedDriveRevision()}
+                onChoose={(revision) => moves.goTo(addressOf({ at: "drive-history", revision }))}
+              />
+            )}</Show>
           </Show>
         </Show>
       }>
