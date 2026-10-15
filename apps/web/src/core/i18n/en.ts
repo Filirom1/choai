@@ -357,7 +357,6 @@ export const en = {
     saved: "Saved, and read by hledger.",
     unsaved: "Not saved yet.",
     checking: "hledger is reading it…",
-    hint: "hledger reads it before it is kept. A file that will not read leaves the journal as it was.",
   },
   declare: {
     title: "These accounts are not in any statement",

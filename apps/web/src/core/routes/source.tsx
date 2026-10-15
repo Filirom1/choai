@@ -117,7 +117,6 @@ function Editor(props: { open: OpenJournal }): JSX.Element {
       </Show>
 
       <Show when={trouble()}>{(cause) => <TroubleNote trouble={cause()} />}</Show>
-      <p class="text-xs text-muted-foreground">{t("source.hint")}</p>
     </div>
   )
 }

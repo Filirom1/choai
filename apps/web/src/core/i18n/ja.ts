@@ -389,7 +389,6 @@ export const ja: Dictionary = {
     saved: "保存済み。hledger が読めています。",
     unsaved: "まだ保存していません。",
     checking: "hledger が読んでいます…",
-    hint: "保存の前に hledger が読みます。読めなかった場合、帳簿は元のままです。",
   },
   declare: {
     title: "この勘定科目は、どの財務諸表にも入っていません",
