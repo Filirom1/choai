@@ -10,7 +10,8 @@ import { pendingChangesNow } from "~/core/components/git/kept-in-view"
 import { pageOf } from "~/core/address/address"
 import { addressOf, lookingAt } from "~/core/components/git/looking"
 import { useMoves } from "~/core/address/moves"
-import { journal, setLocalFolderActive } from "~/core/journal/store"
+import { canOpenFolder, journal, openFiles, openFolder, opening, setLocalFolderActive } from "~/core/journal/store"
+import { putDown } from "~/core/journal/switching"
 import { isGoogleDriveRemote, type GoogleDriveRemote } from "~/core/journal/remote"
 import { getOrUndefined } from "~/core/lib/monad"
 import { t } from "~/core/i18n"
@@ -20,6 +21,7 @@ export default function Remotes(): JSX.Element {
   const location = useLocation()
   const moves = useMoves()
   const [importingFromDrive, setImportingFromDrive] = createSignal(true)
+  let folderChooser!: HTMLInputElement
   const current = () => getOrUndefined(journal())
   const looking = () => lookingAt(pageOf(location.hash))
   const changing = () => {
@@ -31,10 +33,10 @@ export default function Remotes(): JSX.Element {
     return now.at === "drive-history" ? now.revision : undefined
   }
   const showingLocal = (): boolean =>
-    looking().at === "local" || (looking().at !== "connection" && current()?.remote === undefined && current()?.local !== undefined)
+    looking().at === "local" || current()?.local !== undefined
   const showingDrive = (): boolean =>
     looking().at === "drive" || (looking().at !== "connection" && isGoogleDriveRemote(current()?.remote))
-  const active = () => current()?.remote?.provider ?? (current()?.local === undefined ? undefined : "local")
+  const active = () => current()?.local !== undefined ? "local" : current()?.remote?.provider
   const driveRemote = (): GoogleDriveRemote | undefined => {
     const remote = current()?.remote
     return isGoogleDriveRemote(remote) ? remote : undefined
@@ -44,7 +46,17 @@ export default function Remotes(): JSX.Element {
     { provider: "google-drive", title: t("remotes.drive"), looking: { at: "drive" } as const },
     { provider: "local", title: t("remotes.local"), looking: { at: "local" } as const },
   ] as const
+  const selected = () => choices.find((choice) => choice.provider === active())
+  const then = async (open: () => Promise<{ ok: boolean } | undefined>): Promise<void> => {
+    putDown()
+    if ((await open())?.ok) moves.toTheJournal()
+  }
   const choose = (provider: (typeof choices)[number]["provider"]): void => {
+    if (provider === "local" && current()?.local === undefined) {
+      if (canOpenFolder()) void then(openFolder)
+      else folderChooser.click()
+      return
+    }
     if (provider === "local") void setLocalFolderActive()
     const destination = choices.find((choice) => choice.provider === provider)
     if (destination !== undefined) moves.goTo(addressOf(destination.looking))
@@ -55,24 +67,41 @@ export default function Remotes(): JSX.Element {
         <h1 class="text-xl font-semibold">{t("remotes.title")}</h1>
         <p class="text-sm text-muted-foreground">{t("remotes.lead")}</p>
       </header>
+      <input
+        ref={(element) => {
+          folderChooser = element
+          element.setAttribute("webkitdirectory", "")
+        }}
+        type="file"
+        class="hidden"
+        multiple
+        onChange={(event) => {
+          const chosen = event.currentTarget.files
+          if (chosen !== null && chosen.length > 0) void then(() => openFiles(chosen))
+        }}
+      />
       <section class="grid gap-2 sm:grid-cols-3" aria-label={t("remotes.destination")}>
-        <For each={choices}>
+        <Show when={selected()} fallback={
+          <For each={choices}>
+            {(choice) => (
+              <button
+                type="button"
+                disabled={opening()}
+                onClick={() => choose(choice.provider)}
+                class="flex min-h-12 items-center justify-between gap-2 rounded-md border border-border bg-card px-3 py-2 text-left text-sm font-medium transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <span>{choice.title}</span>
+              </button>
+            )}
+          </For>
+        }>
           {(choice) => (
-            <button
-              type="button"
-              disabled={choice.provider === "local" && current()?.local === undefined}
-              aria-pressed={active() === choice.provider}
-              onClick={() => choose(choice.provider)}
-              class="flex min-h-12 items-center justify-between gap-2 rounded-md border border-border bg-card px-3 py-2 text-left text-sm font-medium transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-              classList={{ "border-primary bg-accent": active() === choice.provider }}
-            >
-              <span>{choice.title}</span>
-              <Show when={active() === choice.provider}>
-                <span class="rounded-full bg-primary/10 px-2 py-0.5 text-[0.65rem] text-primary">{t("remotes.active")}</span>
-              </Show>
-            </button>
+            <div aria-current="true" class="flex min-h-12 items-center justify-between gap-2 rounded-md border border-primary bg-accent px-3 py-2 text-left text-sm font-medium">
+              <span>{choice().title}</span>
+              <span class="rounded-full bg-primary/10 px-2 py-0.5 text-[0.65rem] text-primary">{t("remotes.active")}</span>
+            </div>
           )}
-        </For>
+        </Show>
       </section>
       <Show when={showingLocal()} fallback={
         <Show when={showingDrive()} fallback={<Git />}>

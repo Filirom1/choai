@@ -43,6 +43,16 @@ const diskText = (page: Page): Promise<string> => page.evaluate(async () => {
   return (await (await folder.getFileHandle("main.journal")).getFile()).text()
 })
 
+test("the original-folder destination opens a journal folder directly", async ({ page }) => {
+  await prepareFolder(page)
+  await page.goto("/remotes#local")
+  const originalFolder = page.getByRole("button", { name: "Original folder" })
+  await expect(originalFolder).toBeEnabled()
+  await originalFolder.click()
+  await expect(page).toHaveURL(/\/journal#work$/)
+  await expect.poll(async () => (await page.evaluate(() => window.choai.journal.summary({}))).ok).toBe(true)
+})
+
 const edit = async (page: Page, text: string): Promise<void> => {
   await page.locator("textarea").fill(text)
   await page.getByRole("button", { name: "Save", exact: true }).click()
@@ -64,7 +74,9 @@ test("the original folder persists, conflicts do not overwrite it, and discardin
   await expect(saveDisk).toHaveCount(0)
   await localSync()
   await expect(page.getByRole("heading", { name: "Sync and backups" })).toBeVisible()
-  await expect(page.getByRole("button", { name: /Original folder/ })).toHaveAttribute("aria-pressed", "true")
+  await expect(page.getByText("Original folder", { exact: true })).toBeVisible()
+  await expect(page.getByRole("button", { name: "GitHub", exact: true })).toHaveCount(0)
+  await expect(page.getByRole("button", { name: "Google Drive", exact: true })).toHaveCount(0)
   await source()
   const changed = original.replace("Original", "Browser")
   await edit(page, changed)

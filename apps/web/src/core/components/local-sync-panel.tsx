@@ -62,7 +62,7 @@ export function LocalSyncPanel(): JSX.Element {
   }
 
   return (
-    <section class="mx-auto flex w-full max-w-2xl flex-col gap-5">
+    <section class="flex w-full flex-col gap-5">
       <header class="flex flex-col gap-1">
         <h2 class="text-lg font-semibold">{t("local.title")}</h2>
         <p class="font-mono text-sm text-muted-foreground">{open()?.local?.handle.name}</p>
