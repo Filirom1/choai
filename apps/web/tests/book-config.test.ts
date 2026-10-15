@@ -6,6 +6,7 @@ const report = { id: "one", name: "Monthly spending", command: "balance expenses
 const config = {
   documents: { tag: "receipt", folder: "papers/receipts" },
   reports: [report],
+  invert: true,
 }
 
 describe("the configuration that travels with a book", () => {
@@ -13,9 +14,15 @@ describe("the configuration that travels with a book", () => {
     expect(bookConfigFromFiles({})).toEqual({ ok: true, value: DEFAULT_BOOK_CONFIG })
   })
 
-  test("reads its document settings and custom reports from the companion file", () => {
+  test("reads its settings and custom reports from the companion file", () => {
     const files = { [BOOK_CONFIG_PATH]: textOfBookConfig(config) }
     expect(bookConfigFromFiles(files)).toEqual({ ok: true, value: config })
+  })
+
+  test("reads older settings files with report inversion off", () => {
+    const legacy = { documents: config.documents, reports: config.reports }
+    const files = { [BOOK_CONFIG_PATH]: JSON.stringify(legacy) }
+    expect(bookConfigFromFiles(files)).toEqual({ ok: true, value: { ...legacy, invert: false } })
   })
 
   test("refuses an invalid configuration instead of silently dropping fields", () => {

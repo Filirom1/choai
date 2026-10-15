@@ -7,6 +7,7 @@ export const BOOK_CONFIG_PATH = "choai-settings.jsonl"
 export interface BookConfig {
   readonly documents: DocumentSettings
   readonly reports: readonly SavedReport[]
+  readonly invert: boolean
 }
 
 export type BookConfigTrouble =
@@ -16,6 +17,7 @@ export type BookConfigTrouble =
 export const DEFAULT_BOOK_CONFIG: BookConfig = {
   documents: DEFAULT_DOCUMENT_SETTINGS,
   reports: [],
+  invert: false,
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -23,6 +25,13 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 const hasOnly = (record: Record<string, unknown>, names: readonly string[]): boolean =>
   Object.keys(record).every((name) => names.includes(name)) && names.every((name) => Object.hasOwn(record, name))
+
+const hasOnlyWithOptional = (
+  record: Record<string, unknown>,
+  names: readonly string[],
+  optional: readonly string[],
+): boolean => Object.keys(record).every((name) => names.includes(name))
+  && names.filter((name) => !optional.includes(name)).every((name) => Object.hasOwn(record, name))
 
 export const bookConfigFromFiles = (
   files: Readonly<Record<string, string>>,
@@ -37,7 +46,8 @@ export const bookConfigFromFiles = (
     return Err({ kind: "invalid-json", cause })
   }
 
-  if (!isRecord(value) || !hasOnly(value, ["documents", "reports"])) return Err({ kind: "invalid-shape" })
+  if (!isRecord(value) || !hasOnlyWithOptional(value, ["documents", "reports", "invert"], ["invert"])) return Err({ kind: "invalid-shape" })
+  if (typeof value.invert !== "undefined" && typeof value.invert !== "boolean") return Err({ kind: "invalid-shape" })
   const documents = value.documents
   if (!isRecord(documents) || !hasOnly(documents, ["tag", "folder"])) return Err({ kind: "invalid-shape" })
   if (typeof documents.tag !== "string" || typeof documents.folder !== "string") return Err({ kind: "invalid-shape" })
@@ -45,7 +55,7 @@ export const bookConfigFromFiles = (
   const documentSettings = { tag: documents.tag, folder: documents.folder }
   const reports = decodedReports(value.reports)
   return validDocumentSettings(documentSettings) && reports.ok
-    ? Ok({ documents: documentSettings, reports: reports.value })
+    ? Ok({ documents: documentSettings, reports: reports.value, invert: value.invert ?? false })
     : Err({ kind: "invalid-shape" })
 }
 

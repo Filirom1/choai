@@ -2,7 +2,10 @@
 
 import { WASI, Directory, File, OpenFile, PreopenDirectory, ConsoleStdout } from "@bjorn3/browser_wasi_shim"
 import ghcJsffi from "./ghc-jsffi.mjs"
-import type { Request, Trouble } from "./wire"
+import { bookConfigFromFiles } from "~/core/journal/book-config"
+import { withInvertedReportCommand } from "~/core/reports/custom"
+import { invertedBalance, invertedRegister, invertedTrialBalance } from "~/core/reports/invert"
+import type { BalanceReport, Page, RegisterRow, Request, TrialBalance, Trouble } from "./wire"
 
 /**
  * hledger runs here rather than on the main thread.
@@ -38,6 +41,7 @@ export type Reply = WithoutId<Outgoing>
 const directory = new Map<string, File | Directory>()
 
 const started: { instance?: Exports } = {}
+const openBook: { inverted: boolean } = { inverted: false }
 
 /** stdout is retained only during a native report, never sent to the console. */
 const output: { chunks?: readonly Uint8Array[] } = {}
@@ -156,12 +160,15 @@ const serve = async (message: Incoming): Promise<Reply> => {
     const hledger = await running()
     if (message.op === "open") {
       replaceFiles(message.files)
+      const config = bookConfigFromFiles(message.files)
+      openBook.inverted = config.ok && config.value.invert
       return openEnvelope(await hledger.hledgerLoad(message.entry))
     }
-    if (message.request.kind === "command") {
+    const request = openBook.inverted ? requestWithInvertedCommand(message.request) : message.request
+    if (request.kind === "command") {
       output.chunks = []
       try {
-        const reply = openEnvelope(await hledger.hledgerQuery(JSON.stringify(message.request)))
+        const reply = openEnvelope(await hledger.hledgerQuery(JSON.stringify(request)))
         const chunks = output.chunks
         const bytes = new Uint8Array(chunks.reduce((size, chunk) => size + chunk.length, 0))
         chunks.reduce((offset, chunk) => {
@@ -175,9 +182,34 @@ const serve = async (message: Incoming): Promise<Reply> => {
         output.chunks = undefined
       }
     }
-    return openEnvelope(await hledger.hledgerQuery(JSON.stringify(message.request)))
+    const reply = openEnvelope(await hledger.hledgerQuery(JSON.stringify(request)))
+    return openBook.inverted && reply.ok
+      ? { ...reply, value: invertedAnswer(message.request, reply.value) }
+      : reply
   } catch (cause) {
     return { ok: false, trouble: { kind: "unreachable", detail: String(cause) } }
+  }
+}
+
+const requestWithInvertedCommand = (request: Request): Request =>
+  request.kind === "command"
+    ? { ...request, command: withInvertedReportCommand(request.command, openBook.inverted) }
+    : request
+
+const invertedAnswer = (request: Request, value: unknown): unknown => {
+  switch (request.kind) {
+    case "balance":
+    case "balancesheet":
+    case "incomestatement":
+      return invertedBalance(value as BalanceReport)
+    case "trialbalance":
+      return invertedTrialBalance(value as TrialBalance)
+    case "register": {
+      const page = value as Page<RegisterRow>
+      return { ...page, items: page.items.map(invertedRegister) }
+    }
+    default:
+      return value
   }
 }
 

@@ -3,6 +3,18 @@ import { Err, Ok, type Result } from "~/core/lib/monad"
 
 export const CUSTOM_REPORT_PREFIX = "custom:"
 
+const invertibleCommands = new Set([
+  "aregister", "areg", "balance", "bal", "balancesheet", "bs", "balancesheetequity", "bse",
+  "cashflow", "cf", "incomestatement", "is", "print", "p", "register", "reg",
+])
+
+export const withInvertedReportCommand = (command: string, invert: boolean): string => {
+  if (!invert || command.includes("--invert")) return command
+  const match = /^(\s*(?:hledger\s+)?)([^\s]+)([\s\S]*)$/.exec(command)
+  if (match === null || !invertibleCommands.has(match[2]!)) return command
+  return `${match[1]}${match[2]} --invert${match[3]}`
+}
+
 export interface SavedReport {
   readonly id: string
   readonly name: string

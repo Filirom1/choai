@@ -5,7 +5,8 @@ import { BalanceReportView } from "~/core/components/balance-report"
 import { DeclareTypes } from "~/core/components/declare-types"
 import { TrialBalanceView } from "~/core/components/trial-balance"
 import { REPORTS, statementOf } from "~/core/address/address"
-import { addressOfCustomReport, contentOfReport, customReportIdOf, reportDefinition, type DefinitionTrouble, type SavedReport } from "~/core/reports/custom"
+import { addressOfCustomReport, contentOfReport, customReportIdOf, reportDefinition, withInvertedReportCommand, type DefinitionTrouble, type SavedReport } from "~/core/reports/custom"
+import { bookSettings } from "~/core/journal/book-settings"
 import { removeReport, savedReports, saveReport } from "~/core/reports/saved"
 import { useMoves } from "~/core/address/moves"
 import { dock } from "~/core/dock"
@@ -188,9 +189,11 @@ function ReportEditor(props: { readonly report?: SavedReport }): JSX.Element {
     () => {
       const open = getOrUndefined(journal())
       const asked = submitted()
-      return open === undefined || asked === undefined ? undefined : { open, command: asked }
+      if (open === undefined || asked === undefined) return undefined
+      const settings = bookSettings()
+      return { open, command: asked, invert: settings.ok && settings.value.invert }
     },
-    (asked) => ask({ kind: "command", command: asked.command }),
+    (asked) => ask({ kind: "command", command: withInvertedReportCommand(asked.command, asked.invert) }),
   )
   const save = async (): Promise<void> => {
     const definition = reportDefinition(props.report?.id ?? crypto.randomUUID(), name(), command())

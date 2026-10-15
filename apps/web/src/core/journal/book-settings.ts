@@ -66,8 +66,10 @@ const keep = async (
   }).catch((cause: unknown) => Err<BookSettingsTrouble, BookConfig>({ kind: "storage", cause }))
 }
 
-export const saveDocumentSettings = (settings: DocumentSettings): Promise<Result<BookConfig, BookSettingsTrouble>> =>
-  keep((current) => ({ ...current, documents: settings }))
+export const saveBookSettings = (
+  settings: Pick<BookConfig, "documents" | "invert">,
+): Promise<Result<BookConfig, BookSettingsTrouble>> =>
+  keep((current) => ({ ...current, ...settings }))
 
 const definitionTrouble = (trouble: BookSettingsTrouble): DefinitionTrouble =>
   trouble.kind === "invalid-config"

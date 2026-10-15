@@ -328,6 +328,8 @@ export const en = {
     documentFolder: "Folder inside the journal",
     documentsHint: "A document's relative path is written to this tag. Its folder is created when you save, send or export the journal.",
     documentsInvalid: "Use a simple tag name and a relative folder path without empty, . or .. segments.",
+    invertReports: "Reverse signs in reports",
+    invertReportsHint: "Show every report amount with its sign reversed. The journal itself is unchanged.",
     /** Named for what each does, not for the colour it lands on. */
     scheme: {
       system: "Automatic",

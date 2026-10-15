@@ -217,6 +217,8 @@ export const fr: Dictionary = {
     documentFolder: "Dossier des justificatifs dans le livre",
     documentsHint: "Le chemin relatif du document est écrit dans ce tag ; le dossier est créé à la sauvegarde, à l'envoi ou à l'export.",
     documentsInvalid: "Utilisez un nom de tag simple et un chemin relatif sans segment vide, « . » ou « .. ».",
+    invertReports: "Inverser les signes des rapports",
+    invertReportsHint: "Afficher tous les montants des rapports avec le signe opposé. Le journal reste inchangé.",
     scheme: { ...en.settings.scheme, system: "Automatique", light: "Clair", dark: "Sombre" },
   },
   declare: { ...en.declare, title: "Déclarer des comptes" },

@@ -361,6 +361,8 @@ export const ja: Dictionary = {
     documentFolder: "帳簿内のフォルダー",
     documentsHint: "書類の相対パスをこのタグに記録します。保存・送信・書き出し時にフォルダーを作成します。",
     documentsInvalid: "シンプルなタグ名と、空・.・.. を含まない相対フォルダーを指定してください。",
+    invertReports: "レポートの符号を反転",
+    invertReportsHint: "すべてのレポートの金額の符号を反転して表示します。帳簿自体は変更されません。",
     scheme: {
       system: "自動",
       light: "ライト",

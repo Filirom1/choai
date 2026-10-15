@@ -6,8 +6,8 @@ import { Button } from "~/core/components/ui/button"
 import { pageOf } from "~/core/address/address"
 import { SCHEMES, scheme, setScheme } from "~/core/lib/theme"
 import { TextField, TextFieldInput } from "~/core/components/ui/text-field"
-import { DEFAULT_DOCUMENT_SETTINGS, validDocumentSettings, type DocumentSettings } from "~/core/journal/documents"
-import { bookSettings, saveDocumentSettings, type BookSettingsTrouble } from "~/core/journal/book-settings"
+import { DEFAULT_DOCUMENT_SETTINGS, validDocumentSettings } from "~/core/journal/documents"
+import { bookSettings, saveBookSettings, type BookSettingsTrouble } from "~/core/journal/book-settings"
 import { BOOK_CONFIG_PATH } from "~/core/journal/book-config"
 import { journal } from "~/core/journal/store"
 import { getOrUndefined } from "~/core/lib/monad"
@@ -34,7 +34,7 @@ export const SECTIONS: readonly Section[] = [
 /** Everything set once and then left alone, one section at a time. */
 export default function Settings(): JSX.Element {
   const location = useLocation()
-  const [draft, setDraft] = createSignal<DocumentSettings>(DEFAULT_DOCUMENT_SETTINGS)
+  const [draft, setDraft] = createSignal({ documents: DEFAULT_DOCUMENT_SETTINGS, invert: false })
   const [saving, setSaving] = createSignal(false)
   const [failure, setFailure] = createSignal<BookSettingsTrouble>()
   const section = createMemo(() => pageOf(location.hash))
@@ -54,14 +54,16 @@ export default function Settings(): JSX.Element {
   createEffect(
     on(configAddress, () => {
       const settings = bookSettings()
-      setDraft(settings.ok ? settings.value.documents : DEFAULT_DOCUMENT_SETTINGS)
+      setDraft(settings.ok
+        ? { documents: settings.value.documents, invert: settings.value.invert }
+        : { documents: DEFAULT_DOCUMENT_SETTINGS, invert: false })
       setFailure(undefined)
     }),
   )
 
   const save = async (): Promise<void> => {
     setSaving(true)
-    const saved = await saveDocumentSettings(draft())
+    const saved = await saveBookSettings(draft())
     setFailure(saved.ok ? undefined : saved.error)
     setSaving(false)
   }
@@ -129,8 +131,8 @@ export default function Settings(): JSX.Element {
             {t("settings.documentTag")}
             <TextField>
               <TextFieldInput
-                value={draft().tag}
-                onInput={(event) => setDraft({ ...draft(), tag: event.currentTarget.value })}
+                value={draft().documents.tag}
+                onInput={(event) => setDraft({ ...draft(), documents: { ...draft().documents, tag: event.currentTarget.value } })}
               />
             </TextField>
           </label>
@@ -138,21 +140,33 @@ export default function Settings(): JSX.Element {
             {t("settings.documentFolder")}
             <TextField>
               <TextFieldInput
-                value={draft().folder}
-                onInput={(event) => setDraft({ ...draft(), folder: event.currentTarget.value })}
+                value={draft().documents.folder}
+                onInput={(event) => setDraft({ ...draft(), documents: { ...draft().documents, folder: event.currentTarget.value } })}
               />
             </TextField>
           </label>
           <p class="text-xs text-muted-foreground">
-            {validDocumentSettings(draft()) ? t("settings.documentsHint") : t("settings.documentsInvalid")}
+            {validDocumentSettings(draft().documents) ? t("settings.documentsHint") : t("settings.documentsInvalid")}
           </p>
+          <label class="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              class="mt-1"
+              checked={draft().invert}
+              onChange={(event) => setDraft({ ...draft(), invert: event.currentTarget.checked })}
+            />
+            <span class="flex flex-col gap-1">
+              <span>{t("settings.invertReports")}</span>
+              <span class="text-xs text-muted-foreground">{t("settings.invertReportsHint")}</span>
+            </span>
+          </label>
           <Show when={failure()}>
             {(trouble) => <p role="alert" class="text-sm text-error">{settingsFailure(trouble())}</p>}
           </Show>
           <Button
             size="sm"
             class="self-start"
-            disabled={saving() || !validDocumentSettings(draft()) || configurationFailure() !== undefined}
+            disabled={saving() || !validDocumentSettings(draft().documents) || configurationFailure() !== undefined}
             onClick={() => void save()}
           >
             {saving() ? t("settings.saving") : t("settings.saveBook")}
