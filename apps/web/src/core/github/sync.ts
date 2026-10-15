@@ -52,9 +52,25 @@ export type Outcome =
 
 const directoryOf = (path: string): string => path.slice(0, path.lastIndexOf("/") + 1)
 const mimeOf = (path: string): string => ({ pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp" }[path.split(".").pop()?.toLowerCase() ?? ""] ?? "application/octet-stream")
-const textPath = (path: string): boolean => /\.(journal|hledger|ledger)$/i.test(path)
+const journalPath = (path: string): boolean => /\.(journal|hledger|ledger)$/i.test(path)
+/**
+ * What is taken as text beside the journal, as a folder or Drive would take it.
+ *
+ * GitHub says nothing of a file's type, so the name has to: rules, statements
+ * and notes kept with the books are part of them, and left behind they would be
+ * reported as arriving from the other side on the first comparison.
+ */
+const textPath = (path: string): boolean => journalPath(path) || /\.(rules|csv|tsv|ssv|txt|md|markdown|json|jsonl)$/i.test(path)
 const binaryPath = (path: string): boolean => /\.(pdf|png|jpe?g|gif|webp|bmp)$/i.test(path)
 const nameOf = (path: string): string => path.slice(path.lastIndexOf("/") + 1)
+const agreementMatches = (current: Agreed | undefined, next: Agreed): boolean =>
+  current !== undefined &&
+  current.path === next.path &&
+  current.repoPath === next.repoPath &&
+  current.sha === next.sha &&
+  current.baseText === next.baseText &&
+  current.baseBinary?.size === next.baseBinary?.size &&
+  current.baseBinary?.fingerprint === next.baseBinary?.fingerprint
 
 const binaryVersion = async (blob: Blob, identity?: string): Promise<Result<CapturedVersion, Failure>> => {
   try {
@@ -219,13 +235,14 @@ const localChangedPaths = async (
 ): Promise<readonly string[]> => {
   const agreements = await agreementsFor(open.bookId)
   const byPath = new Map(agreements.map((agreement) => [agreement.path, agreement]))
-  const textPaths = [...new Set([...Object.keys(open.source.files), ...agreements.map(({ path }) => path)])].filter((path) => !isHiddenPath(path))
-  const changedText = textPaths.filter((path) => open.source.files[path] !== byPath.get(path)?.baseText)
-  const binaryPaths = [...new Set([
+  const binaryPaths = new Set([
     ...open.source.attachments.map(({ path }) => path),
     ...agreements.filter(({ baseBinary }) => baseBinary !== undefined).map(({ path }) => path),
-  ])].filter((path) => !isHiddenPath(path))
-  const changedBinary = await Promise.all(binaryPaths.map(async (path) => {
+  ])
+  const textPaths = [...new Set([...Object.keys(open.source.files), ...agreements.map(({ path }) => path)])]
+    .filter((path) => !isHiddenPath(path) && !binaryPaths.has(path))
+  const changedText = textPaths.filter((path) => open.source.files[path] !== byPath.get(path)?.baseText)
+  const changedBinary = await Promise.all([...binaryPaths].filter((path) => !isHiddenPath(path)).map(async (path) => {
     const agreement = byPath.get(path)
     const localBlob = await attachmentOf(open.bookId, path)
     if (localBlob === undefined) return open.source.attachments.some((attachment) => attachment.path === path) ? undefined : path
@@ -288,7 +305,6 @@ export const inspect = async (): Promise<Result<readonly FileSnapshot[], Snag>> 
   const agreementByPath = new Map(knownAgreements.map((agreement) => [agreement.path, agreement]))
   const companionPaths = new Set(Object.values(open.source.files).flatMap(companionsIn))
   const includedPaths = new Set(Object.values(open.source.files).flatMap(includedBy))
-  const journalPath = (path: string): boolean => /\.(journal|hledger|ledger)$/i.test(path)
   const paths = [...new Set([
     ...Object.keys(open.source.files),
     ...open.source.attachments.map(({ path }) => path),
@@ -300,7 +316,7 @@ export const inspect = async (): Promise<Result<readonly FileSnapshot[], Snag>> 
     const repoPath = agreement?.repoPath ?? `${directory}${path}`
     const localAttachment = open.source.attachments.some((attachment) => attachment.path === path)
     const knownCompanion = localAttachment || companionPaths.has(path) || agreement?.baseBinary !== undefined || binaryPath(path)
-    const knownAccounting = open.source.files[path] !== undefined || includedPaths.has(path) || journalPath(path)
+    const knownAccounting = open.source.files[path] !== undefined || includedPaths.has(path) || textPath(path)
     const isBinary = knownCompanion || (!knownAccounting && !knownCompanion)
     const role = knownCompanion ? "companion" as const : knownAccounting ? "accounting" as const : "unknown" as const
     if (isBinary) {
@@ -336,14 +352,15 @@ export const inspect = async (): Promise<Result<readonly FileSnapshot[], Snag>> 
       const binaryContent = destinationResult?.ok ? destinationResult.value.content : undefined
       if (fetched.ok && binaryContent?.kind === "binary" && binaryContent.fingerprint !== undefined &&
         ["unchanged", "added-both-same", "changed-both-same"].includes(snapshot.state)) {
-        await agree(open.bookId, {
+        const next: Agreed = {
           path,
           repoPath,
           sha: fetched.value.sha,
           baseText: "",
           baseBinary: { size: binaryContent.size, fingerprint: binaryContent.fingerprint },
           at: Date.now(),
-        })
+        }
+        if (!agreementMatches(agreement, next)) await agree(open.bookId, next)
       }
       return Ok({ path, snapshot } as const)
     }
@@ -370,7 +387,8 @@ export const inspect = async (): Promise<Result<readonly FileSnapshot[], Snag>> 
     })
     if (snapshot.state === "deleted-both") await forgetAgreement(open.bookId, path)
     if (fetched.ok && ["unchanged", "added-both-same", "changed-both-same"].includes(snapshot.state)) {
-      await agree(open.bookId, { path, repoPath, sha: fetched.value.sha, baseText: fetched.value.text, at: Date.now() })
+      const next: Agreed = { path, repoPath, sha: fetched.value.sha, baseText: fetched.value.text, at: Date.now() }
+      if (!agreementMatches(agreement, next)) await agree(open.bookId, next)
     }
     return Ok({ path, snapshot } as const)
   }))

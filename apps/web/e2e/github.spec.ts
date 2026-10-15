@@ -187,7 +187,72 @@ test("a file the journal says belongs beside it comes back with the journal", as
   await page.getByRole("button", { name: "Edit the text", exact: true }).click()
   await expect(page.getByRole("button", { name: COMPANION, exact: true })).toBeVisible()
   await page.getByRole("button", { name: COMPANION, exact: true }).click()
-  await expect(page.getByTitle(COMPANION)).toBeVisible()
+  await expect(page.locator(`iframe[title="${COMPANION}"]`)).toBeVisible()
+})
+
+test("an unchanged binary companion does not count as a local text change", async ({ page }) => {
+  const companion = "papers.csv"
+  const declaring = `; choai-file: ${companion}\n\n${JOURNAL}`
+  await page.route("**/api.github.com/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname === "/user") return asJson(route, { login: "mrksye" })
+    if (url.pathname.includes("/git/trees/")) return asJson(route, { tree: [
+      { path: "books/main.journal", type: "blob" },
+      { path: `books/${companion}`, type: "blob" },
+    ] })
+    if (url.pathname.endsWith(`/contents/books/${companion}`)) {
+      return asJson(route, {
+        content: Buffer.from(PAPERS, "utf-8").toString("base64"),
+        encoding: "base64",
+        sha: "pdf-sha",
+      })
+    }
+    if (url.pathname.includes("/contents/")) {
+      return asJson(route, {
+        content: Buffer.from(declaring, "utf-8").toString("base64"),
+        encoding: "base64",
+        sha: "journal-sha",
+      })
+    }
+    return asJson(route, {}, 404)
+  })
+
+  await page.goto("/git#connection")
+  await fill(page, "Personal access token", NOT_A_TOKEN)
+  await fill(page, "Owner", "mrksye")
+  await fill(page, "Repository", "books")
+  await fill(page, "Path to the journal (its folder is loaded)", "books/main.journal")
+  await page.getByRole("button", { name: "Save and check", exact: true }).click()
+  await expect(page.getByText("Connected as mrksye")).toBeVisible()
+  await page.getByRole("button", { name: "Take from GitHub as a new journal" }).click()
+  await expect(page).toHaveURL(/\/remotes#connection$/)
+
+  await page.getByRole("button", { name: "Edit the text", exact: true }).click()
+  await page.getByRole("button", { name: companion, exact: true }).click()
+  await expect(page.locator(`iframe[title="${companion}"]`)).toBeVisible()
+
+  await page.goto("/journal")
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")))
+  await expect.poll(async () => (await page.evaluate(() => window.choai?.journal.summary({})))?.ok).toBe(true)
+  const compare = page.getByRole("button", { name: "Compare and sync" })
+  await expect(compare).toBeVisible()
+  await compare.click({ force: true })
+  await expect.poll(async () => page.evaluate(() => new Promise<boolean>((resolve, reject) => {
+    const opening = indexedDB.open("choai")
+    opening.onerror = () => reject(opening.error)
+    opening.onsuccess = () => {
+      const request = opening.result.transaction("remote").objectStore("remote").getAll()
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => {
+        const rows = request.result as { agreed?: { path: string; baseBinary?: { fingerprint: string } } }[]
+        resolve(rows.some(({ agreed }) => agreed?.path === companion && agreed.baseBinary !== undefined))
+      }
+    }
+  }))).toBe(true)
+
+  await page.goto("/git#connection")
+  await page.getByRole("button", { name: "Take from GitHub", exact: true }).click()
+  await expect(page.getByText(/^Taken:/)).toBeVisible()
 })
 
 /** Every book kept on this device, read straight from where it is kept. */

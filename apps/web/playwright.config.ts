@@ -21,21 +21,22 @@ import { defineConfig } from "@playwright/test"
  */
 const EDITION = process.env.CHOAI_EDITION ?? "standard"
 const JAPAN_ONLY = "**/jp.spec.ts"
+const TEST_PORT = process.env.PLAYWRIGHT_TEST_PORT ?? "8397"
 
 export default defineConfig({
   testDir: "./e2e",
   ...(EDITION === "jp" ? { testMatch: [JAPAN_ONLY] } : { testIgnore: [JAPAN_ONLY] }),
   fullyParallel: false,
   use: {
-    baseURL: "http://localhost:8396",
+    baseURL: `http://localhost:${TEST_PORT}`,
     ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH === undefined
       ? {}
       : { launchOptions: { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH } }),
   },
   webServer: {
-    command: "CHOAI_TEST=1 bun run dev",
-    url: "http://localhost:8396",
-    reuseExistingServer: process.env.CI === undefined,
+    command: `CHOAI_TEST=1 bun run dev -- --port ${TEST_PORT} --strictPort`,
+    url: `http://localhost:${TEST_PORT}`,
+    reuseExistingServer: false,
     timeout: 120_000,
   },
 })

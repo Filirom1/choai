@@ -21,6 +21,7 @@ const openTheDemo = async (page: Page): Promise<void> => {
   await page.goto("/")
   await page.evaluate(() => window.choai.ready)
   await page.getByRole("button", { name: "Try the demo" }).click()
+  await expect(page).toHaveURL(/\/journal#work$/)
 
   await expect
     .poll(async () => {
@@ -34,6 +35,7 @@ test("the manifest says enough to be used by something that was not written agai
   page,
 }) => {
   await page.goto("/")
+  await page.evaluate(() => window.choai.ready)
   const manifest = await page.evaluate(() => window.choai.describe())
 
   expect(manifest.name).toBe("choai")
@@ -57,6 +59,7 @@ test("the manifest says enough to be used by something that was not written agai
 
 test("what writes and what leaves the device are named, and neither drifts", async ({ page }) => {
   await page.goto("/")
+  await page.evaluate(() => window.choai.ready)
   const manifest = await page.evaluate(() => window.choai.describe())
   const named = (of: (told: { writes: boolean; leaves: boolean; offered: boolean }) => boolean) =>
     Object.entries(manifest.capabilities)

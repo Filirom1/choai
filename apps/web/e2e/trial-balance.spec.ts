@@ -22,6 +22,7 @@ const openTheDemo = async (page: Page): Promise<void> => {
   await page.goto("/")
   await page.evaluate(() => window.choai.ready)
   await page.getByRole("button", { name: "Try the demo" }).click()
+  await expect(page).toHaveURL(/\/journal#work$/)
 
   await expect
     .poll(async () => {
@@ -434,6 +435,7 @@ test("the balance sheet's ledger under a period still shows the account's balanc
 test("a period is two days, which a shortcut fills in and which can be typed", async ({ page }) => {
   await openTheDemo(page)
   await page.goto("/reports#income-statement")
+  await expect.poll(async () => await page.evaluate(async () => (await window.choai?.journal.summary({}))?.ok ?? false)).toBe(true)
   await page.getByRole("button", { name: "Filters", exact: true }).click()
   const period = page.getByRole("group", { name: "Period" })
   const from = period.getByLabel("From (included)")

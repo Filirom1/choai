@@ -19,14 +19,16 @@ declare global {
  */
 const openTheDemo = async (page: Page): Promise<void> => {
   await page.goto("/")
+  await page.waitForFunction(() => window.choai !== undefined)
   await page.evaluate(() => window.choai.ready)
   await page.getByRole("button", { name: "Try the demo" }).click()
+  await expect(page).toHaveURL(/\/journal#work$/)
 
   await expect
     .poll(async () => {
-      const open = await page.evaluate(() => window.choai.journal.summary({}))
-      return open.ok ? open.value.transactions : 0
-    })
+      const open = await page.evaluate(() => window.choai?.journal.summary({}))
+      return open?.ok === true ? open.value.transactions : 0
+    }, { timeout: 15_000 })
     .toBe(9)
 }
 

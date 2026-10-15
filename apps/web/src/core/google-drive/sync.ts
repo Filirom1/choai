@@ -277,12 +277,18 @@ const localChanges = async (
 ): Promise<Result<readonly string[], Snag>> => {
   const agreements = await agreementsFor(open.bookId)
   const baseByPath = new Map(agreements.map((agreement) => [agreement.path, agreement]))
+  const attachmentPaths = new Set(open.source.attachments.map(({ path }) => path))
+  const binaryPaths = new Set([
+    ...attachmentPaths,
+    ...agreements.filter(({ baseBinary }) => baseBinary !== undefined).map(({ path }) => path),
+  ])
   const textPaths = [...new Set([...Object.keys(open.source.files), ...agreements.map(({ path }) => path)])]
-    .filter((path) => !hiddenPath(path))
+    .filter((path) => !hiddenPath(path) && !binaryPaths.has(path))
   const changedText = textPaths.filter((path) => open.source.files[path] !== baseByPath.get(path)?.baseText)
   const tree = await filesIn(token, remote)
   if (!tree.ok) return tree
-  const binaryChanges = await Promise.all(open.source.attachments.filter(({ path }) => !hiddenPath(path)).map(async ({ path }): Promise<Result<string | undefined, Snag>> => {
+  const binaryChanges = await Promise.all([...binaryPaths].filter((path) => !hiddenPath(path)).map(async (path): Promise<Result<string | undefined, Snag>> => {
+    if (!attachmentPaths.has(path)) return Ok(path)
     if (await attachmentOf(open.bookId, path) === undefined) return Ok(undefined)
     const destination = tree.value.find((item) => item.path === path)
     if (destination === undefined) return Ok(path)

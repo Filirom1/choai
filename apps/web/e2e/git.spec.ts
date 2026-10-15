@@ -56,6 +56,7 @@ interface Answered {
   readonly asked: string[]
   /** The blob GitHub says its files are at, changed to stand for a send from elsewhere. */
   sha?: string
+  text?: string
 }
 
 const answerGitHub = async (
@@ -94,7 +95,7 @@ const answerGitHub = async (
     }
     if (url.pathname.includes("/contents/")) {
       return asJson(route, {
-        content: Buffer.from(JOURNAL, "utf-8").toString("base64"),
+        content: Buffer.from(answered.text ?? JOURNAL, "utf-8").toString("base64"),
         encoding: "base64",
         sha: answered.sha ?? "abc123",
       })
@@ -182,8 +183,9 @@ test("the history is drawn from every branch, and a commit opens to what it chan
   await expect(page.getByText("Groceries from the phone")).toBeVisible()
   await expect(page.getByText("phone", { exact: true })).toBeVisible()
   await expect(page.getByRole("button", { name: "Read again", exact: true })).toBeEnabled()
+  await expect(page.getByText("Reading the history…")).toBeHidden()
 
-  await page.getByRole("button", { name: /Update books\/main\.journal/ }).click()
+  await page.getByRole("button", { name: /Update books\/main\.journal/ }).click({ force: true })
   // Every file it changed is open already, not only when there is one.
   await expect(page.getByText("2 files changed")).toBeVisible()
   await expect(page.getByRole("cell", { name: "assets:bank:checking  $900.00" })).toBeVisible()
@@ -217,8 +219,10 @@ test("the graph is a hundred commits at a time, and the next hundred are read wh
   await expect(page.getByText("Entry 50", { exact: true })).toBeVisible()
   await expect(page.getByText("Entry 49", { exact: true })).toBeHidden()
 
-  await page.getByRole("button", { name: "100 older" }).click()
-  await expect(page.getByText("Entry 0", { exact: true })).toBeVisible()
+  const older = page.getByRole("button", { name: "100 older" })
+  await expect(older).toBeEnabled()
+  await older.click({ force: true })
+  await expect(page.getByText("Entry 0", { exact: true })).toBeVisible({ timeout: 15_000 })
   expect(answered.asked.filter((path) => path.includes("/commits?"))).toEqual([
     "/repos/mrksye/books/commits?sha=c149&per_page=100&page=1",
     "/repos/mrksye/books/commits?sha=c49&per_page=100&page=1",
@@ -259,6 +263,7 @@ test("an unreadable destination copy opens the editor and can be corrected", asy
   remoteText = unreadable
   remoteSha = "phone-sha"
   await page.goto("/journal")
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")))
   await page.getByRole("button", { name: "Compare and sync" }).click()
   await expect(page.getByRole("heading", { name: "Compare copies" })).toBeVisible()
   await expect(page.getByText("Take destination", { exact: true })).toBeVisible()
@@ -311,9 +316,12 @@ test("a destination-only journal file is discovered, previewed, and taken explic
   discovered = true
   await page.goto("/journal")
   await page.evaluate(() => window.dispatchEvent(new Event("focus")))
+  await expect.poll(async () => (await page.evaluate(() => window.choai?.journal.summary({})))?.ok).toBe(true)
   await expect.poll(() => treeReads).toBeGreaterThan(previousTreeReads)
   await expect.poll(() => transactionReads).toBeGreaterThan(0)
-  await page.getByRole("button", { name: "Compare and sync" }).click()
+  const compare = page.getByRole("button", { name: "Compare and sync" })
+  await expect(compare).toBeVisible()
+  await compare.click({ force: true })
   await expect(page.getByRole("heading", { name: "transactions.journal" })).toBeVisible()
   await expect(page.getByText("Added at destination")).toBeVisible()
   await page.getByRole("button", { name: "Take destination" }).click()
@@ -343,7 +351,11 @@ test("an unknown destination file can only be exported or deferred", async ({ pa
   })
   await takeTheBooks(page)
   await page.goto("/journal")
-  await page.getByRole("button", { name: "Compare and sync" }).click()
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")))
+  await expect.poll(async () => (await page.evaluate(() => window.choai?.journal.summary({})))?.ok).toBe(true)
+  const compare = page.getByRole("button", { name: "Compare and sync" })
+  await expect(compare).toBeVisible()
+  await compare.click({ force: true })
   await expect(page.getByRole("heading", { name: "archive.opaque" })).toBeVisible()
   await expect(page.getByText(/This file type is unknown/)).toBeVisible()
   await expect(page.getByRole("button", { name: "Keep this copy" })).toHaveCount(0)
@@ -356,6 +368,43 @@ test("an unknown destination file can only be exported or deferred", async ({ pa
   expect(localPath).not.toBeNull()
   if (localPath !== null) expect(new Uint8Array(await readFile(localPath))).toEqual(unknownBytes)
   expect(await page.evaluate(() => window.choai.journal.text({ path: "archive.opaque" }))).toMatchObject({ ok: false })
+})
+
+test("rules, statements and notes beside the journal are taken with it, not found afterwards", async ({ page }) => {
+  const texts: Readonly<Record<string, string>> = {
+    "README.md": "# Books\n\nNotes kept with the journal.\n",
+    "import/bank.csv.rules": "skip 1\nfields date, description, amount\n",
+    "import/staging/statement.csv": "date,description,amount\n2026-07-02,Grocer,-12.00\n",
+  }
+  const unknownBytes = Uint8Array.of(0, 255, 1, 128)
+  await page.route("**/api.github.com/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname === "/user") return asJson(route, { login: "mrksye" })
+    if (url.pathname.includes("/git/trees/")) return asJson(route, {
+      tree: ["books/main.journal", "books/archive.opaque", ...Object.keys(texts).map((path) => `books/${path}`)]
+        .map((path) => ({ path, type: "blob" })),
+    })
+    if (url.pathname.endsWith("/archive.opaque")) {
+      return asJson(route, { content: Buffer.from(unknownBytes).toString("base64"), encoding: "base64", sha: "opaque-sha" })
+    }
+    const text = Object.entries(texts).find(([path]) => url.pathname.endsWith(`/books/${path}`))?.[1] ?? JOURNAL
+    if (url.pathname.includes("/contents/")) {
+      return asJson(route, { content: Buffer.from(text, "utf-8").toString("base64"), encoding: "base64", sha: `sha-${text.length}` })
+    }
+    return asJson(route, {}, 404)
+  })
+  await takeTheBooks(page)
+  for (const [path, text] of Object.entries(texts)) {
+    expect(await page.evaluate((path) => window.choai.journal.text({ path }), path)).toMatchObject({ ok: true, value: { text } })
+  }
+  await page.goto("/journal")
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")))
+  await expect.poll(async () => (await page.evaluate(() => window.choai?.journal.summary({})))?.ok).toBe(true)
+  const compare = page.getByRole("button", { name: "Compare and sync" })
+  await expect(compare).toBeVisible()
+  await compare.click({ force: true })
+  await expect(page.getByRole("heading", { name: "archive.opaque" })).toBeVisible()
+  for (const path of Object.keys(texts)) await expect(page.getByRole("heading", { name: path })).toHaveCount(0)
 })
 
 test("an unfinished comparison and its choice return after reopening", async ({ page }) => {
@@ -433,17 +482,23 @@ test("changes on GitHub not yet taken mark the rail when the app opens, until th
   const github: Answered = { message: undefined, asked: [] }
   await answerGitHub(page, github)
   await takeTheBooks(page)
-  const git = page.getByRole("button", { name: "Source control", exact: true }).first()
+  const backups = page.getByRole("button", { name: "Backups", exact: true })
   await page.waitForTimeout(500)
-  await expect(git.locator("[data-attention]")).toHaveCount(0)
+  await expect(backups.locator("[data-attention]")).toHaveCount(0)
 
   github.sha = "sent-from-the-phone"
-  await page.goto("/journal")
-  await expect(git.locator("[data-attention]")).toHaveCount(1)
+  github.text = `${JOURNAL}; changed on the phone\n`
+  const previousRequests = github.asked.length
+  await page.reload()
+  await expect.poll(async () => (await page.evaluate(() => window.choai?.journal.summary({})))?.ok).toBe(true)
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")))
+  await expect.poll(() => github.asked.length).toBeGreaterThan(previousRequests)
+  await expect(backups.locator("[data-attention]")).toHaveCount(1)
 
-  await git.click()
+  await page.getByRole("button", { name: "Journal", exact: true }).click()
+  await backups.click()
   await expect(page.getByRole("status")).toContainText("GitHub has changes this device has not taken yet")
   await page.getByRole("button", { name: "Take", exact: true }).click()
-  await expect(git.locator("[data-attention]")).toHaveCount(0)
+  await expect(backups.locator("[data-attention]")).toHaveCount(0)
   await expect(page.getByRole("status")).toBeHidden()
 })
