@@ -181,9 +181,8 @@ test("unsaved text survives leaving the text, and its file is marked", async ({ 
  * The list beside the settings is a table of contents, not a list of accounts.
  *
  * Every other explorer is accounts, because the views they belong to are all one
- * journal narrowed different ways. Nothing on the settings page is about a
- * journal, so a list of accounts there was the account list turning up where it
- * had no business being.
+ * journal narrowed different ways. Settings has its own sections, including the
+ * current book's document settings, rather than an account list.
  */
 const settingsList = (page: Page) => page.locator("aside").first().locator("> div").last()
 
@@ -192,12 +191,14 @@ test("the settings list offers the page's own sections, and nothing else", async
   await openTheDemo(page)
 
   await page.getByRole("button", { name: "Settings", exact: true }).first().click()
+  await expect(settingsList(page).getByRole("button", { name: "Language", exact: true })).toBeVisible()
 
   // The same names the page uses for its headings, in the same order.
   const offered = await settingsList(page).getByRole("button").allInnerTexts()
   expect(offered).toEqual([
     "Language",
     "Appearance",
+    "Current book",
   ])
 })
 

@@ -33,7 +33,7 @@ export const unsentNow: Resource<readonly Unsent[]> = waiting
  * for each one. A book not connected, or a question GitHub could not answer,
  * comes to nothing to take — a mark that is there only when it is sure.
  */
-const [moved] = createRoot(() =>
+const [moved, { refetch: refetchMoved }] = createRoot(() =>
   createResource(
     () => {
       const open = getOrUndefined(journal())
@@ -48,6 +48,10 @@ const [moved] = createRoot(() =>
 
 /** The files GitHub has moved on from here; empty where there is nothing to take, or no way to know. */
 export const behindNow = (): readonly string[] => moved() ?? []
+
+export const refreshBehind = (): void => {
+  void refetchMoved()
+}
 
 const [saved] = createRoot(() => createResource(agreements, () => token()))
 

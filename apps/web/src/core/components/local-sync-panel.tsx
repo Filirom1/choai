@@ -1,21 +1,24 @@
-import { Show, createSignal, type JSX } from "solid-js"
+import { Show, createResource, createSignal, type JSX } from "solid-js"
 
 import { Button } from "~/core/components/ui/button"
 import { TroubleNote } from "~/core/components/trouble-note"
-import { journal, localBusy, reloadLocalFolder, saveToLocalFolder, type LocalTrouble } from "~/core/journal/store"
+import { changedOnDisk, journal, localBusy, localFolderHasPending, reloadLocalFolder, saveToLocalFolder, type LocalTrouble } from "~/core/journal/store"
 import { changedPaths } from "~/core/journal/local"
+import { isHiddenPath } from "~/core/journal/hidden"
+import { blockedSync } from "~/core/sync/conflict"
 import { differsFrom, forgetUnsavedText } from "~/core/journal/unsaved-text"
 import { putDown } from "~/core/journal/switching"
-import { getOrUndefined, type Result } from "~/core/lib/monad"
+import { Err, getOrUndefined, type Result } from "~/core/lib/monad"
 import { t } from "~/core/i18n"
 
 export function LocalSyncPanel(): JSX.Element {
   const [result, setResult] = createSignal<Result<void, LocalTrouble> | undefined>()
   const open = () => getOrUndefined(journal())
-  const edited = (): boolean => Object.entries(open()?.source.files ?? {}).some(([path, text]) => differsFrom(path, text))
+  const [binaryPending] = createResource(() => open(), async (current) => current === undefined ? false : localFolderHasPending(current))
+  const edited = (): boolean => Object.entries(open()?.source.files ?? {}).some(([path, text]) => !isHiddenPath(path) && differsFrom(path, text))
   const changed = (): boolean => {
     const current = open()
-    return current !== undefined && changedPaths(current.local?.base ?? {}, current.source.files).length > 0
+    return current !== undefined && (changedPaths(current.local?.base ?? {}, current.source.files).length > 0 || binaryPending() === true)
   }
   const failure = (): LocalTrouble | undefined => {
     const answer = result()
@@ -24,6 +27,25 @@ export function LocalSyncPanel(): JSX.Element {
   const run = async (work: () => Promise<Result<void, LocalTrouble>>): Promise<void> => {
     setResult(undefined)
     setResult(await work())
+  }
+  const save = async (): Promise<Result<void, LocalTrouble>> => {
+    const current = open()
+    if (current === undefined) return saveToLocalFolder()
+    const destination = await changedOnDisk(current)
+    if (!destination.ok) return destination
+    const blocked = blockedSync("push", [], destination.value)
+    return blocked === undefined
+      ? saveToLocalFolder()
+      : Err({ at: "changed", path: blocked.paths[0] ?? "" })
+  }
+  const reload = async (): Promise<Result<void, LocalTrouble>> => {
+    const current = open()
+    const localChanges = current === undefined || current.local === undefined
+      ? []
+      : changedPaths(current.local.base, current.source.files)
+    return blockedSync("pull", localChanges, []) === undefined
+      ? reloadLocalFolder()
+      : Err({ at: "unsaved" })
   }
   const restartFromDisk = async (): Promise<void> => {
     if (!window.confirm(t("local.discardConfirm"))) return
@@ -47,8 +69,8 @@ export function LocalSyncPanel(): JSX.Element {
         <p class="text-sm text-muted-foreground">{t("local.hint")}</p>
       </header>
       <div class="flex flex-wrap gap-2">
-        <Button disabled={localBusy() || edited() || !changed()} onClick={() => void run(saveToLocalFolder)}>{t("local.save")}</Button>
-        <Button variant="outline" disabled={localBusy() || edited() || changed()} onClick={() => void run(() => reloadLocalFolder())}>{t("local.reload")}</Button>
+        <Button disabled={localBusy() || edited() || !changed()} onClick={() => void run(save)}>{t("local.save")}</Button>
+        <Button variant="outline" disabled={localBusy() || edited() || changed()} onClick={() => void run(reload)}>{t("local.reload")}</Button>
         <Show when={changed() || edited() || failure()?.at === "changed"}>
           <Button variant="outline" disabled={localBusy()} onClick={() => void restartFromDisk()}>{t("local.discard")}</Button>
         </Show>

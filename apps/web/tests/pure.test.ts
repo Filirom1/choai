@@ -29,7 +29,7 @@ import {
 import { capabilitiesWith, viewsWith, type View } from "~/edition/types"
 import { StandardEdition } from "~/editions/standard"
 import { CAPABILITY, NAMED, ROUTE, UNDER } from "~/editions/jp/naming"
-import { companionsAcross, companionsIn, declaringCompanion } from "~/core/journal/companions"
+import { companionsAcross, companionsIn, declaringCompanion, excludingCompanion } from "~/core/journal/companions"
 import {
   DEFAULT_DOCUMENT_SETTINGS,
   documentPathOn,
@@ -43,7 +43,7 @@ import { withoutTag, withTag, withTags } from "~/core/journal/tagging"
 import { byDay, weekdayOf } from "~/core/journal/days"
 import { byTop } from "~/core/explorer/tree"
 import { accountQuery } from "~/core/journal/account-query"
-import { ACCOUNTS, MAIN, TRANSACTIONS, adjustmentsOn, includedBy, including, laidOut, writtenInto } from "~/core/journal/layout"
+import { ACCOUNTS, MAIN, TRANSACTIONS, adjustmentsOn, excluding, includedBy, including, laidOut, writtenInto } from "~/core/journal/layout"
 import { byMonth, counterpartsOf, dayOf, hasMovement, ledgerOf, namedIn, within } from "~/core/reports/ledger"
 import type { BalanceReport, RegisterRow, Transaction } from "~/core/hledger/wire"
 import { withoutKind } from "~/core/journal/declarations"
@@ -695,6 +695,10 @@ describe("the files a journal says belong beside it", () => {
       "; how amounts are written",
     ])
     expect(companionsIn(written)).toEqual(["fixed-assets.jsonl"])
+    const withTwo = declaringCompanion(written, "papers/receipt.jpg")
+    const withoutOne = excludingCompanion(withTwo, "fixed-assets.jsonl")
+    expect(companionsIn(withoutOne)).toEqual(["papers/receipt.jpg"])
+    expect(withoutOne).toContain("; choai-file: papers/receipt.jpg")
   })
 
   test("declaring it twice declares it once", () => {
@@ -1194,6 +1198,7 @@ describe("how a set of books is laid out in files", () => {
     expect(including(once, "adjustments/2027-08-20.journal")).toBe(once)
     expect(including(main, "accounts.journal")).toBe(main)
     expect(including("; books\n", "transactions.journal")).toBe("; books\ninclude transactions.journal\n")
+    expect(excluding("include a.journal\n; keep\ninclude b.journal ; note\n", "a.journal")).toBe("; keep\ninclude b.journal ; note\n")
   })
 
   test("writing a journal file the book lacks names it in the entry file in the same write", () => {

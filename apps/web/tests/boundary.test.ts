@@ -159,6 +159,8 @@ describe("writing to the journal", () => {
       // Pulling from remote providers, which bring text from away.
       "core/github/sync.ts",
       "core/google-drive/sync.ts",
+      // Explicitly confirmed local-folder choices are another resolution door.
+      "core/journal/local-resolution.ts",
       // One edition's own screens, on the same footing as core's.
       "editions/jp/ui/writing.ts",
     ].sort())

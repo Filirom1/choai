@@ -3,15 +3,15 @@ import { For, Show, createResource, createSignal, onMount, type JSX } from "soli
 import { Button } from "~/core/components/ui/button"
 import { TextField, TextFieldInput, TextFieldLabel } from "~/core/components/ui/text-field"
 import { TroubleNote } from "~/core/components/trouble-note"
-import { accessToken, behind as checkBehind, clientId, forgetSession, getFileContent, getFileMetadata, keepClientId, listFilesInFolder, listSharedWithMe, listStarred, loadIdentity, pull, pullAsNewBook, push, unsent as listUnsent, type DriveFile, type Failure, type Outcome, type Snag } from "~/core/google-drive/index"
+import { accessToken, behind as checkBehind, clientId, clientIdNow, forgetSession, getFileContent, getFileMetadata, keepClientId, listFilesInFolder, listSharedWithMe, listStarred, loadIdentity, pull, pullAsNewBook, push, unsent as listUnsent, type DriveFile, type Failure, type Outcome, type Snag } from "~/core/google-drive/index"
 import { journal, setRemote as setBookRemote } from "~/core/journal/store"
 import { putDown } from "~/core/journal/switching"
 import type { GoogleDriveRemote } from "~/core/journal/remote"
 import { Err, Ok, getOrUndefined, type Result } from "~/core/lib/monad"
 import { includedBy } from "~/core/journal/layout"
 import { t } from "~/core/i18n"
+import { noteDriveChecked } from "~/core/google-drive/kept"
 
-const DEFAULT_CLIENT_ID = "869320600994-2l2ahavcrd0tcm50qh3kummla72baiqp.apps.googleusercontent.com"
 const SHARED_ROOT = "shared-with-me"
 const STARRED_ROOT = "starred"
 const NOWHERE: GoogleDriveRemote = { provider: "google-drive", folderId: "", folderName: "", path: "" }
@@ -66,7 +66,7 @@ export function GoogleDrivePanel(props: { readonly bound: GoogleDriveBound }): J
     folderName: folderName() ?? existing()?.folderName ?? "",
     path: path() ?? existing()?.path ?? "",
   })
-  const id = (): string => (typedClientId() ?? savedClientId() ?? DEFAULT_CLIENT_ID).trim()
+  const id = (): string => (typedClientId() ?? savedClientId() ?? clientIdNow()).trim()
   const valid = (): boolean => id() !== "" && place().folderId !== "" && place().path !== ""
   const loadDirectory = async (token: string, parentId: string): Promise<boolean> => {
     const result = parentId === SHARED_ROOT
@@ -93,7 +93,9 @@ export function GoogleDrivePanel(props: { readonly bound: GoogleDriveBound }): J
   const report = (result: { readonly ok: true; readonly value: Outcome } | { readonly ok: false; readonly error: Snag }): void => {
     if (!result.ok) {
       if (result.error.at === "drive" && result.error.failure.kind === "unauthorised") forgetSession()
-      setSnag(result.error)
+      if (!forNewBook() && (result.error.at === "conflict" || result.error.at === "local-changes")) {
+        setSaid(t("syncResolution.providerUnavailable", { files: result.error.path }))
+      } else setSnag(result.error)
     } else setSaid(outcomeWords(result.value))
   }
   const connect = (): Promise<void> => run(async () => {
@@ -104,6 +106,7 @@ export function GoogleDrivePanel(props: { readonly bound: GoogleDriveBound }): J
       return
     }
     await keepClientId(id())
+    noteDriveChecked()
     if (!forNewBook()) {
       await setBookRemote(place())
       setSaid(t("gdrive.connected"))
@@ -230,6 +233,11 @@ export function GoogleDrivePanel(props: { readonly bound: GoogleDriveBound }): J
     await setBookRemote(place())
     report(await pull())
   })
+  const recoverRemote = (): Promise<void> => run(async () => {
+    putDown()
+    setBehindFiles(undefined)
+    report(await pullAsNewBook(place()))
+  })
   const send = (): Promise<void> => run(async () => {
     report(await push())
     await refetchWaiting()
@@ -237,7 +245,10 @@ export function GoogleDrivePanel(props: { readonly bound: GoogleDriveBound }): J
   const checkRemote = (): Promise<void> => run(async () => {
     const result = await checkBehind()
     if (!result.ok) setSnag(result.error)
-    else setBehindFiles(result.value)
+    else {
+      noteDriveChecked()
+      setBehindFiles(result.value)
+    }
   })
   const disconnect = (): Promise<void> => run(async () => {
     forgetSession()
@@ -308,6 +319,12 @@ export function GoogleDrivePanel(props: { readonly bound: GoogleDriveBound }): J
         </Show>
         <Show when={(waiting() ?? []).length > 0}>
           <p class="text-xs text-muted-foreground">{t("gdrive.pullAfterPush")}</p>
+        </Show>
+        <Show when={(behindFiles() ?? []).length > 0 || snag()?.at === "conflict" || snag()?.at === "local-changes"}>
+          <div class="flex flex-col gap-1">
+            <Button type="button" variant="outline" size="sm" disabled={!valid() || busy()} onClick={() => void recoverRemote()}>{t("gdrive.recoverRemote")}</Button>
+            <p class="text-xs text-muted-foreground">{t("gdrive.recoverRemoteHelp")}</p>
+          </div>
         </Show>
       </Show>
       <Show when={busy()}><p class="text-xs text-muted-foreground">{t("gdrive.working")}</p></Show>

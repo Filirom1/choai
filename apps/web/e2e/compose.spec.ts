@@ -45,7 +45,7 @@ test("payees and both kinds of tags follow writes while the composer stays open"
 
   await page.getByRole("button", { name: "+ tag", exact: true }).nth(1).click()
   const postingName = page.getByPlaceholder("name", { exact: true }).nth(1)
-  await expect(postingName).toHaveAttribute("list", "offered-posting-tag-names")
+  await expect(postingName).toHaveAttribute("list", /offered-posting-tag-names$/)
   await expect.poll(() => suggestionsOf(postingName)).toContain("receipt")
   await postingName.fill("receipt")
   await expect.poll(() => suggestionsOf(page.getByPlaceholder("value", { exact: true }).nth(1))).toContain("R123")

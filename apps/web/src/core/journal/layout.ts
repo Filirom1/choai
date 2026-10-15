@@ -70,6 +70,10 @@ export const including = (text: string, path: string): string => {
   return [...lines.slice(0, at), includeOf(path), ...lines.slice(at)].join("\n") + "\n"
 }
 
+/** Remove only the include naming `path`, leaving every other line untouched. */
+export const excluding = (text: string, path: string): string =>
+  text.split("\n").filter((line) => INCLUDE.exec(line.trim())?.[1] !== path).join("\n")
+
 /**
  * What writing `text` into `path` comes to: that file, and the entry file
  * naming it in an include where the book did not have it — one write, so there

@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises"
 import { expect, test, type Page, type Route } from "@playwright/test"
 
 import type { Choai } from "~/core/api/install"
@@ -72,6 +73,7 @@ const answerGitHub = async (
     answered.asked.push(url.pathname + url.search)
     if (url.pathname === "/user") return asJson(route, { login: "mrksye" })
     if (url.pathname === "/repos/mrksye/books") return asJson(route, { default_branch: "main" })
+    if (url.pathname.includes("/git/trees/")) return asJson(route, { tree: [{ path: "books/main.journal", type: "blob" }] })
     if (url.pathname.endsWith("/branches")) return asJson(route, heads)
     if (url.pathname.endsWith("/commits")) {
       return asJson(route, walked(history, url.searchParams.get("sha") ?? "", Number(url.searchParams.get("page") ?? 1)))
@@ -115,16 +117,18 @@ const takeTheBooks = async (page: Page): Promise<void> => {
   await fill(page, "Personal access token", NOT_A_TOKEN)
   await fill(page, "Owner", "mrksye")
   await fill(page, "Repository", "books")
-  await fill(page, "Path to the journal", "books/main.journal")
+  await fill(page, "Path to the journal (its folder is loaded)", "books/main.journal")
   await page.getByRole("button", { name: "Save and check", exact: true }).click()
   await expect(page.getByText("Connected as mrksye")).toBeVisible()
   await page.getByRole("button", { name: "Take from GitHub as a new journal" }).click()
+  await expect(page.getByText(/^Taken:/)).toBeVisible()
   await expect
     .poll(async () => {
       const open = await page.evaluate(() => window.choai.journal.summary({}))
       return open.ok ? open.value.transactions : 0
     })
     .toBe(1)
+  await expect(page).toHaveURL(/\/remotes#connection$/)
 }
 
 test("with nothing connected, the screen is the connection, and the sidebar says so", async ({ page }) => {
@@ -177,8 +181,9 @@ test("the history is drawn from every branch, and a commit opens to what it chan
   await expect(page.getByText("Merge the phone's entries")).toBeVisible()
   await expect(page.getByText("Groceries from the phone")).toBeVisible()
   await expect(page.getByText("phone", { exact: true })).toBeVisible()
+  await expect(page.getByRole("button", { name: "Read again", exact: true })).toBeEnabled()
 
-  await page.getByText("Update books/main.journal").click()
+  await page.getByRole("button", { name: /Update books\/main\.journal/ }).click()
   // Every file it changed is open already, not only when there is one.
   await expect(page.getByText("2 files changed")).toBeVisible()
   await expect(page.getByRole("cell", { name: "assets:bank:checking  $900.00" })).toBeVisible()
@@ -228,6 +233,202 @@ test("the graph is a hundred commits at a time, and the next hundred are read wh
  * source control button, and its list says so and leads to taking; taking
  * agrees again, and the mark goes.
  */
+test("an unreadable destination copy opens the editor and can be corrected", async ({ page }) => {
+  const changed = `${JOURNAL}\n2026-07-05 Grocer\n    expenses:food  $32.80\n    assets:bank:checking\n`
+  const unreadable = `${JOURNAL}\n2026-07-05 Grocer\n    expenses:food  $32.80\n    assets:bank:checking  $1.00\n`
+  let remoteText = JOURNAL
+  let remoteSha = "abc123"
+  await page.route("**/api.github.com/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname === "/user") return asJson(route, { login: "mrksye" })
+    if (url.pathname.includes("/git/trees/")) return asJson(route, { tree: [{ path: "books/main.journal", type: "blob" }] })
+    if (url.pathname.includes("/contents/") && route.request().method() === "PUT") {
+      return asJson(route, { content: { sha: "resolved-sha" } })
+    }
+    if (url.pathname.includes("/contents/")) {
+      return asJson(route, {
+        content: Buffer.from(remoteText, "utf-8").toString("base64"),
+        encoding: "base64",
+        sha: remoteSha,
+      })
+    }
+    return asJson(route, {}, 404)
+  })
+  await takeTheBooks(page)
+
+  remoteText = unreadable
+  remoteSha = "phone-sha"
+  await page.goto("/journal")
+  await page.getByRole("button", { name: "Compare and sync" }).click()
+  await expect(page.getByRole("heading", { name: "Compare copies" })).toBeVisible()
+  await expect(page.getByText("Take destination", { exact: true })).toBeVisible()
+  await expect(page.getByText("2026-07-05 Grocer").first()).toBeVisible()
+  expect(await page.evaluate(() => window.choai.journal.text({ path: "main.journal" }))).toMatchObject({
+    ok: true,
+    value: { text: JOURNAL },
+  })
+
+  await page.getByRole("button", { name: "Take destination" }).click()
+  await expect(page.getByText("The journal cannot be read with this text.")).toBeVisible()
+  await expect(page.getByText("A transaction does not balance.")).toBeVisible()
+  const editor = page.getByLabel("Text to keep")
+  await expect(editor).toHaveValue(unreadable)
+  await editor.fill(changed)
+  await page.getByRole("button", { name: "Continue", exact: true }).click()
+  await expect(page.getByText("The journal can be read.")).toBeVisible()
+  await expect(page.getByText(/writes the edited/)).toBeVisible()
+  await page.getByRole("button", { name: "Confirm and apply" }).click()
+  await expect.poll(async () => page.evaluate(() => window.choai.journal.text({ path: "main.journal" }))).toMatchObject({
+    ok: true,
+    value: { text: changed },
+  })
+})
+
+test("a destination-only journal file is discovered, previewed, and taken explicitly", async ({ page }) => {
+  let discovered = false
+  let treeReads = 0
+  let transactionReads = 0
+  const extra = `2026-07-06 Grocer\n    expenses:food  $12.00\n    assets:bank:checking\n`
+  await page.route("**/api.github.com/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname === "/user") return asJson(route, { login: "mrksye" })
+    if (url.pathname.includes("/git/trees/")) {
+      treeReads += 1
+      return asJson(route, {
+        tree: ["books/main.journal", ...(discovered ? ["books/transactions.journal"] : [])].map((path) => ({ path, type: "blob" })),
+      })
+    }
+    if (url.pathname.includes("/contents/")) {
+      const isExtra = url.pathname.endsWith("transactions.journal")
+      if (isExtra) transactionReads += 1
+      const text = isExtra ? extra : JOURNAL
+      return asJson(route, { content: Buffer.from(text, "utf-8").toString("base64"), encoding: "base64", sha: isExtra ? "extra-sha" : "main-sha" })
+    }
+    return asJson(route, {}, 404)
+  })
+  await takeTheBooks(page)
+  const previousTreeReads = treeReads
+  discovered = true
+  await page.goto("/journal")
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")))
+  await expect.poll(() => treeReads).toBeGreaterThan(previousTreeReads)
+  await expect.poll(() => transactionReads).toBeGreaterThan(0)
+  await page.getByRole("button", { name: "Compare and sync" }).click()
+  await expect(page.getByRole("heading", { name: "transactions.journal" })).toBeVisible()
+  await expect(page.getByText("Added at destination")).toBeVisible()
+  await page.getByRole("button", { name: "Take destination" }).click()
+  await expect(page.getByText("The journal can be read.")).toBeVisible()
+  await page.getByRole("button", { name: "Confirm and apply" }).click()
+  await expect.poll(async () => page.evaluate(() => window.choai.journal.text({ path: "transactions.journal" }))).toMatchObject({
+    ok: true,
+    value: { text: extra },
+  })
+})
+
+test("an unknown destination file can only be exported or deferred", async ({ page }) => {
+  const unknownBytes = Uint8Array.of(0, 255, 1, 128)
+  await page.route("**/api.github.com/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname === "/user") return asJson(route, { login: "mrksye" })
+    if (url.pathname.includes("/git/trees/")) return asJson(route, {
+      tree: ["books/main.journal", "books/archive.opaque"].map((path) => ({ path, type: "blob" })),
+    })
+    if (url.pathname.endsWith("/archive.opaque")) {
+      return asJson(route, { content: Buffer.from(unknownBytes).toString("base64"), encoding: "base64", sha: "opaque-sha" })
+    }
+    if (url.pathname.includes("/contents/")) {
+      return asJson(route, { content: Buffer.from(JOURNAL, "utf-8").toString("base64"), encoding: "base64", sha: "main-sha" })
+    }
+    return asJson(route, {}, 404)
+  })
+  await takeTheBooks(page)
+  await page.goto("/journal")
+  await page.getByRole("button", { name: "Compare and sync" }).click()
+  await expect(page.getByRole("heading", { name: "archive.opaque" })).toBeVisible()
+  await expect(page.getByText(/This file type is unknown/)).toBeVisible()
+  await expect(page.getByRole("button", { name: "Keep this copy" })).toHaveCount(0)
+  await expect(page.getByRole("button", { name: "Take destination" })).toHaveCount(0)
+  const downloadReady = page.waitForEvent("download")
+  await page.getByRole("button", { name: "Export destination copy" }).click()
+  const download = await downloadReady
+  expect(download.suggestedFilename()).toBe("archive.opaque")
+  const localPath = await download.path()
+  expect(localPath).not.toBeNull()
+  if (localPath !== null) expect(new Uint8Array(await readFile(localPath))).toEqual(unknownBytes)
+  expect(await page.evaluate(() => window.choai.journal.text({ path: "archive.opaque" }))).toMatchObject({ ok: false })
+})
+
+test("an unfinished comparison and its choice return after reopening", async ({ page }) => {
+  let remoteText = JOURNAL
+  let remoteSha = "abc123"
+  await page.route("**/api.github.com/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname === "/user") return asJson(route, { login: "mrksye" })
+    if (url.pathname.includes("/git/trees/")) return asJson(route, { tree: [{ path: "books/main.journal", type: "blob" }] })
+    if (url.pathname.includes("/contents/")) {
+      return asJson(route, {
+        content: Buffer.from(remoteText, "utf-8").toString("base64"),
+        encoding: "base64",
+        sha: remoteSha,
+      })
+    }
+    return asJson(route, {}, 404)
+  })
+  await takeTheBooks(page)
+
+  remoteText = `${JOURNAL} ; revised remotely\n`
+  remoteSha = "phone-sha"
+  await page.goto("/journal")
+  await page.getByRole("button", { name: "Compare and sync" }).click()
+  await expect(page.getByRole("heading", { name: "Compare copies" })).toBeVisible()
+  await page.getByRole("button", { name: "Keep this copy" }).click()
+  await page.getByRole("button", { name: "Close and decide later" }).click()
+  await expect(page.getByRole("heading", { name: "Compare copies" })).toBeHidden()
+
+  await page.reload()
+  await expect(page.getByRole("heading", { name: "Compare copies" })).toBeVisible()
+  await expect(page.getByRole("button", { name: "Keep this copy", exact: true })).toBeVisible()
+})
+
+test("a version changed after comparison is not overwritten", async ({ page }) => {
+  let remoteText = JOURNAL
+  let remoteSha = "abc123"
+  const writes: { readonly sha?: string }[] = []
+  await page.route("**/api.github.com/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname === "/user") return asJson(route, { login: "mrksye" })
+    if (url.pathname.includes("/git/trees/")) return asJson(route, { tree: [{ path: "books/main.journal", type: "blob" }] })
+    if (url.pathname.includes("/contents/") && route.request().method() === "PUT") {
+      writes.push((route.request().postDataJSON() as { readonly sha?: string }))
+      return asJson(route, { content: { sha: "resolved-sha" } })
+    }
+    if (url.pathname.includes("/contents/")) {
+      return asJson(route, {
+        content: Buffer.from(remoteText, "utf-8").toString("base64"),
+        encoding: "base64",
+        sha: remoteSha,
+      })
+    }
+    return asJson(route, {}, 404)
+  })
+  await takeTheBooks(page)
+
+  remoteText = `${JOURNAL} ; revised remotely\n`
+  remoteSha = "phone-sha"
+  await page.goto("/journal")
+  await page.getByRole("button", { name: "Compare and sync" }).click()
+  await expect(page.getByRole("heading", { name: "Compare copies" })).toBeVisible()
+
+  remoteText = `${JOURNAL} ; changed again\n`
+  remoteSha = "new-phone-sha"
+  await page.getByRole("button", { name: "Keep this copy" }).click()
+  await expect(page.getByText("The journal can be read.")).toBeVisible()
+  await page.getByRole("button", { name: "Confirm and apply" }).click()
+  await expect(page.getByText("; changed again", { exact: false }).first()).toBeVisible()
+  await expect(page.getByText(/changed after this comparison/)).toHaveCount(0)
+  expect(writes).toEqual([])
+})
+
 test("changes on GitHub not yet taken mark the rail when the app opens, until they are taken", async ({ page }) => {
   const github: Answered = { message: undefined, asked: [] }
   await answerGitHub(page, github)

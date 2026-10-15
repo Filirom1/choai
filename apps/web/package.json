@@ -11,7 +11,7 @@
     "build:standard": "CHOAI_EDITION=standard bun run build",
     "build:jp": "CHOAI_EDITION=jp bun run build",
     "preview": "bun --bun vite preview",
-    "test": "bun test tests",
+    "test": "bun test --isolate tests",
     "e2e": "playwright test",
     "e2e:jp": "CHOAI_EDITION=jp playwright test"
   },

@@ -1,12 +1,24 @@
 import { expect, test, type Page } from "@playwright/test"
 
+import type { Choai } from "~/core/api/install"
+
+
+declare global {
+  interface Window {
+    choai: Choai
+  }
+}
+
 const original = "2026-01-01 Original\n    expenses:food  $2\n    assets:cash\n"
 const external = "2026-01-02 From disk\n    expenses:food  $3\n    assets:cash\n"
 
 /** Real browser directory handles exercise persistence without a native folder-picker dialog. */
 const prepareFolder = async (page: Page): Promise<void> => {
   await page.addInitScript((text) => {
-    Object.defineProperty(FileSystemHandle.prototype, "requestPermission", { configurable: true, value: async () => "granted" })
+    let folderPermission: PermissionState = "granted"
+    Object.defineProperty(window, "__setFolderPermission", { configurable: true, value: (permission: PermissionState) => { folderPermission = permission } })
+    Object.defineProperty(FileSystemHandle.prototype, "queryPermission", { configurable: true, value: async () => folderPermission })
+    Object.defineProperty(FileSystemHandle.prototype, "requestPermission", { configurable: true, value: async () => { folderPermission = "granted"; return folderPermission } })
     Object.defineProperty(window, "showDirectoryPicker", { configurable: true, value: async () => {
       const folder = await (await navigator.storage.getDirectory()).getDirectoryHandle("books", { create: true })
       const writable = await (await folder.getFileHandle("main.journal", { create: true })).createWritable()
@@ -41,14 +53,15 @@ test("the original folder persists, conflicts do not overwrite it, and discardin
   await prepareFolder(page)
   await page.goto("/")
   await page.getByRole("button", { name: "Open a journal folder", exact: true }).click()
+  await expect(page).toHaveURL(/\/journal#work$/)
+  await expect.poll(async () => (await page.evaluate(() => window.choai.journal.summary({}))).ok).toBe(true)
   await page.goto("/journal/source#work")
   await expect(page.locator("textarea")).toHaveValue(original)
-  await expect(page.getByText("You are working on a local copy")).toBeVisible()
   await expect(page.getByRole("button", { name: "Save to original folder", exact: true })).toHaveCount(0)
   const saveDisk = page.getByRole("button", { name: "Save to original folder", exact: true })
   const discard = page.getByRole("button", { name: "Discard changes and reload from disk", exact: true })
-  const localSync = async (): Promise<void> => { await page.goto("/remotes#local") }
-  const source = async (): Promise<void> => { await page.goto("/journal/source#work") }
+  const localSync = async (): Promise<void> => { await page.getByRole("button", { name: "Backups", exact: true }).first().click() }
+  const source = async (): Promise<void> => { await page.getByRole("button", { name: "Edit the text", exact: true }).first().click() }
   await localSync()
   await expect(page.getByRole("heading", { name: "Sync and backups" })).toBeVisible()
   await expect(page.getByRole("button", { name: /Original folder/ })).toHaveAttribute("aria-pressed", "true")
@@ -56,12 +69,11 @@ test("the original folder persists, conflicts do not overwrite it, and discardin
   const changed = original.replace("Original", "Browser")
   await edit(page, changed)
   expect(await diskText(page)).toBe(original)
-  const saveNow = page.getByRole("button", { name: "Save now", exact: true })
-  await saveNow.click()
-  await expect(saveNow).toHaveClass(/bg-success/)
-  await expect(saveNow.getByText("✓")).toBeVisible()
-  expect(await diskText(page)).toBe(changed)
   await localSync()
+  await expect(saveDisk).toBeEnabled()
+  await saveDisk.click()
+  await expect(page.getByRole("status")).toContainText("Folder synchronized")
+  expect(await diskText(page)).toBe(changed)
   await expect(saveDisk).toBeDisabled()
 
   await page.reload()
@@ -69,9 +81,24 @@ test("the original folder persists, conflicts do not overwrite it, and discardin
   await expect(page.locator("textarea")).toHaveValue(changed)
   await edit(page, original)
   await replaceDisk(page, external)
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")))
+  await expect(page.getByRole("alert")).toContainText("Changes are available from the other copy")
+  await page.evaluate(() => (window as unknown as { __setFolderPermission: (permission: PermissionState) => void }).__setFolderPermission("prompt"))
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")))
+  await expect(page.getByRole("alert")).toContainText("Check the backup for changes")
+  await page.getByRole("button", { name: "Compare and sync", exact: true }).click()
+  await expect(page.getByRole("heading", { name: "Compare copies" })).toBeVisible()
+  await expect(page.getByText("From disk")).toBeVisible()
+  await page.getByRole("button", { name: "Decide later", exact: true }).click()
+  await expect(page.getByRole("heading", { name: "Compare copies" })).toHaveCount(0)
+  await localSync()
+  await page.getByRole("button", { name: "Compare and sync", exact: true }).click()
+  await expect(page.getByRole("heading", { name: "Compare copies" })).toBeVisible()
+  await expect(page.getByText("From disk")).toBeVisible()
+  await page.getByRole("button", { name: "Close and decide later", exact: true }).click()
   await localSync()
   await saveDisk.click()
-  await expect(page.getByRole("alert")).toContainText("has changed on disk")
+  await expect(page.getByText(/has changed on disk/)).toBeVisible()
   expect(await diskText(page)).toBe(external)
 
   page.once("dialog", (dialog) => dialog.dismiss())
@@ -83,8 +110,8 @@ test("the original folder persists, conflicts do not overwrite it, and discardin
   page.once("dialog", (dialog) => dialog.accept())
   await localSync()
   await discard.click()
+  await expect(page.getByText(/syntax error/)).toBeVisible()
   await source()
-  await expect(page.getByText("hledger could not read the journal.", { exact: false })).toBeVisible()
   await expect(page.locator("textarea")).toHaveValue("unsaved browser text")
 
   await replaceDisk(page, external)
@@ -103,5 +130,6 @@ test("the original folder persists, conflicts do not overwrite it, and discardin
   await replaceDisk(page, original)
   await localSync()
   await page.getByRole("button", { name: "Reload from folder", exact: true }).click()
+  await source()
   await expect(page.locator("textarea")).toHaveValue(original)
 })

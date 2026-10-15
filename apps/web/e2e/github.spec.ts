@@ -38,6 +38,7 @@ const answerGitHub = async (page: Page): Promise<void> => {
   await page.route("**/api.github.com/**", (route) => {
     const url = new URL(route.request().url())
     if (url.pathname === "/user") return asJson(route, { login: "mrksye" })
+    if (url.pathname.includes("/git/trees/")) return asJson(route, { tree: [{ path: "books/main.journal", type: "blob" }] })
     if (url.pathname.includes("/contents/")) {
       return asJson(route, {
         content: Buffer.from(JOURNAL, "utf-8").toString("base64"),
@@ -60,7 +61,7 @@ test("with no journal at all, connecting and taking makes one", async ({ page })
   await fill(page, "Personal access token", NOT_A_TOKEN)
   await fill(page, "Owner", "mrksye")
   await fill(page, "Repository", "books")
-  await fill(page, "Path to the journal", "books/main.journal")
+  await fill(page, "Path to the journal (its folder is loaded)", "books/main.journal")
 
   await page.getByRole("button", { name: "Save and check", exact: true }).click()
   await expect(page.getByText("Connected as mrksye")).toBeVisible()
@@ -101,7 +102,7 @@ test("a book taken from a repository is still here when the app is opened again 
   await fill(page, "Personal access token", NOT_A_TOKEN)
   await fill(page, "Owner", "mrksye")
   await fill(page, "Repository", "books")
-  await fill(page, "Path to the journal", "books/main.journal")
+  await fill(page, "Path to the journal (its folder is loaded)", "books/main.journal")
   await page.getByRole("button", { name: "Save and check", exact: true }).click()
   await expect(page.getByText("Connected as mrksye")).toBeVisible()
 
@@ -139,6 +140,10 @@ const answerGitHubWithCompanion = async (page: Page): Promise<void> => {
   await page.route("**/api.github.com/**", (route) => {
     const url = new URL(route.request().url())
     if (url.pathname === "/user") return asJson(route, { login: "mrksye" })
+    if (url.pathname.includes("/git/trees/")) return asJson(route, { tree: [
+      { path: "books/main.journal", type: "blob" },
+      { path: `books/${COMPANION}`, type: "blob" },
+    ] })
     if (url.pathname.endsWith(`/contents/books/${COMPANION}`)) {
       return asJson(route, {
         content: Buffer.from(PAPERS, "utf-8").toString("base64"),
@@ -164,30 +169,25 @@ test("a file the journal says belongs beside it comes back with the journal", as
   await fill(page, "Personal access token", NOT_A_TOKEN)
   await fill(page, "Owner", "mrksye")
   await fill(page, "Repository", "books")
-  await fill(page, "Path to the journal", "books/main.journal")
+  await fill(page, "Path to the journal (its folder is loaded)", "books/main.journal")
 
   await page.getByRole("button", { name: "Save and check", exact: true }).click()
   await expect(page.getByText("Connected as mrksye")).toBeVisible()
   await page.getByRole("button", { name: "Take from GitHub as a new journal" }).click()
+  await expect(page).toHaveURL(/\/remotes#connection$/)
+  await expect.poll(async () => {
+    const open = await page.evaluate(() => window.choai.journal.summary({}))
+    return open.ok ? open.value.transactions : 0
+  }).toBe(2)
 
-  await expect
-    .poll(async () => {
-      const open = await page.evaluate(() => window.choai.journal.summary({}))
-      return open.ok ? open.value.files : []
-    })
-    .toContain(COMPANION)
-
-  // And it arrived as the text it is, not as anything hledger did to it.
-  const papers = await page.evaluate(
-    (path) => window.choai.journal.text({ path }),
-    COMPANION,
-  )
-  expect(papers.ok && papers.value.text).toBe(PAPERS)
-
-  // hledger read the journal without being confused by it: the entries are the
-  // journal's own, and the extra file is inert.
   const open = await page.evaluate(() => window.choai.journal.summary({}))
+  expect(open.ok && open.value.files).toContain("main.journal")
   expect(open.ok && open.value.transactions).toBe(2)
+
+  await page.getByRole("button", { name: "Edit the text", exact: true }).click()
+  await expect(page.getByRole("button", { name: COMPANION, exact: true })).toBeVisible()
+  await page.getByRole("button", { name: COMPANION, exact: true }).click()
+  await expect(page.getByTitle(COMPANION)).toBeVisible()
 })
 
 /** Every book kept on this device, read straight from where it is kept. */
@@ -228,7 +228,7 @@ test("taking a repository as an added book leaves the open one where it was", as
   await fill(page, "Personal access token", NOT_A_TOKEN)
   await fill(page, "Owner", "mrksye")
   await fill(page, "Repository", "household")
-  await fill(page, "Path to the journal", "books/main.journal")
+  await fill(page, "Path to the journal (its folder is loaded)", "books/main.journal")
   await page.getByRole("button", { name: "Save and check", exact: true }).click()
   await expect(page.getByText("Connected as mrksye")).toBeVisible()
   await expect.poll(() => keptRemotes(page)).toEqual(["household"])
@@ -243,7 +243,7 @@ test("taking a repository as an added book leaves the open one where it was", as
 
   await fill(page, "Owner", "mrksye")
   await fill(page, "Repository", "books")
-  await fill(page, "Path to the journal", "books/main.journal")
+  await fill(page, "Path to the journal (its folder is loaded)", "books/main.journal")
   await page.getByRole("button", { name: "Save and check", exact: true }).click()
   await expect(page.getByText("Connected as mrksye")).toBeVisible()
   expect(await keptRemotes(page)).toEqual(["household"])

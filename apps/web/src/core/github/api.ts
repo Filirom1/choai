@@ -1,4 +1,5 @@
 import { Err, Ok, type Result } from "~/core/lib/monad"
+import { textOf } from "~/core/lib/text"
 
 /**
  * The little of GitHub's API this needs: read a file, write a file, and read
@@ -87,9 +88,8 @@ export const fetchBinary = async (token: string, where: Where): Promise<Result<F
   const response = answer.value
   if (!response.ok) return Err(await failureOf(response))
   const body = (await response.json()) as { content?: string; sha?: string }
-  if (typeof body.content !== "string" || typeof body.sha !== "string") {
-    return Err({ kind: "refused", status: response.status, detail: "not a file" })
-  }
+  if (typeof body.sha !== "string") return Err({ kind: "refused", status: response.status, detail: "not a file" })
+  if (typeof body.content !== "string") return fetchBlob(token, where, body.sha, response.status)
   const bytes = bytesOf(body.content)
   const copy = new Uint8Array(bytes.byteLength)
   copy.set(bytes)
@@ -102,8 +102,11 @@ export const fetchFile = async (token: string, where: Where): Promise<Result<Fet
   const response = answer.value
   if (!response.ok) return Err(await failureOf(response))
   const body = (await response.json()) as { content?: string; sha?: string; encoding?: string }
-  if (typeof body.content !== "string" || typeof body.sha !== "string") {
-    return Err({ kind: "refused", status: response.status, detail: "not a file" })
+  if (typeof body.sha !== "string") return Err({ kind: "refused", status: response.status, detail: "not a file" })
+  if (typeof body.content !== "string") {
+    const blob = await fetchBlob(token, where, body.sha, response.status)
+    if (!blob.ok) return blob
+    return Ok({ text: textOf(await blob.value.blob.arrayBuffer()), sha: blob.value.sha })
   }
   return Ok({ text: decode(body.content), sha: body.sha })
 }
@@ -115,6 +118,22 @@ export const fetchFile = async (token: string, where: Where): Promise<Result<Fet
  * should not exist yet". Either way, GitHub refuses rather than overwrites when
  * the remote has moved on, which is the answer we want.
  */
+const fetchBlob = async (token: string, where: Where, sha: string, status: number): Promise<Result<FetchedBinary, Failure>> => {
+  const response = await call(`${repositoryUrl(where)}/git/blobs/${encodeURIComponent(sha)}`, {
+    headers: headers(token),
+  })
+  if (!response.ok) return response
+  if (!response.value.ok) return Err(await failureOf(response.value))
+  const body = (await response.value.json()) as { content?: string; encoding?: string }
+  if (typeof body.content !== "string" || body.encoding !== "base64") {
+    return Err({ kind: "refused", status, detail: "GitHub did not return the full blob" })
+  }
+  const bytes = bytesOf(body.content)
+  const copy = new Uint8Array(bytes.byteLength)
+  copy.set(bytes)
+  return Ok({ blob: new Blob([copy.buffer]), sha })
+}
+
 export const putBinary = async (
   token: string,
   where: Where,
@@ -168,6 +187,25 @@ export const putFile = async (
     return Err({ kind: "refused", status: response.status, detail: "no sha came back" })
   }
   return Ok({ text, sha: written })
+}
+
+export const deleteFile = async (
+  token: string,
+  where: Where,
+  sha: string,
+  message: string,
+): Promise<Result<void, Failure>> => {
+  const answer = await call(url({ ...where, branch: "" }), {
+    method: "DELETE",
+    headers: { ...headers(token), "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message,
+      sha,
+      branch: where.branch === "" ? undefined : where.branch,
+    }),
+  })
+  if (!answer.ok) return answer
+  return answer.value.ok ? Ok(undefined) : Err(await failureOf(answer.value))
 }
 
 /** Who the token belongs to, which is the only way to check one before using it. */
@@ -351,7 +389,12 @@ const bytesOf = (base64: string): Uint8Array => {
   return Uint8Array.from(binary, (character) => character.charCodeAt(0))
 }
 
-const decode = (base64: string): string => new TextDecoder().decode(bytesOf(base64))
+const decode = (base64: string): string => {
+  const bytes = bytesOf(base64)
+  const copy = new Uint8Array(bytes.byteLength)
+  copy.set(bytes)
+  return textOf(copy.buffer)
+}
 
 const encode = (text: string): string => encodeBytes(new TextEncoder().encode(text))
 

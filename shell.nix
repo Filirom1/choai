@@ -12,6 +12,7 @@ pkgs.mkShell {
     binaryen
     wasmtime
     pkgsCross.wasi32.stdenv.cc
+    chromium
   ];
 
   shellHook = ''
@@ -23,7 +24,10 @@ pkgs.mkShell {
       echo "wasm: toolchain not installed; run ./wasm/scripts/setup.sh"
     fi
 
+    export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=${pkgs.chromium}/bin/chromium
+
     echo "choai development shell"
+    echo "Playwright Chromium: $PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH"
     echo "Run: cd apps/web && bun install && bun run dev"
   '';
 }

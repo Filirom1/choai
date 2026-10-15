@@ -23,7 +23,7 @@ export type Failure =
   | { readonly kind: "conflict" }
   | { readonly kind: "refused"; readonly status: number }
 
-const FILE_FIELDS = "nextPageToken,files(id,name,mimeType,md5Checksum,modifiedTime,version,size,parents)"
+const FILE_FIELDS = "nextPageToken,files(id,name,mimeType,md5Checksum,modifiedTime,version,size,parents,headRevisionId)"
 
 export const listFilesInFolder = async (token: string, folderId: string): Promise<Result<readonly DriveFile[], Failure>> => {
   const q = `'${folderId.replaceAll("'", "\\'")}' in parents and trashed = false`
@@ -141,17 +141,55 @@ export const updateFile = async (
   token: string,
   fileId: string,
   content: string,
+): Promise<Result<DriveFile, Failure>> => updateMedia(token, fileId, content, "text/plain; charset=utf-8")
+
+export const updateBlob = async (
+  token: string,
+  fileId: string,
+  blob: Blob,
+): Promise<Result<DriveFile, Failure>> => updateMedia(token, fileId, blob, blob.type || "application/octet-stream")
+
+const updateMedia = async (
+  token: string,
+  fileId: string,
+  body: string | Blob,
+  contentType: string,
 ): Promise<Result<DriveFile, Failure>> => {
   const fields = "id,name,mimeType,md5Checksum,modifiedTime,version,size,parents,headRevisionId"
   const response = await call(`${UPLOAD}/files/${encodeURIComponent(fileId)}?uploadType=media&fields=${encodeURIComponent(fields)}`, {
     method: "PATCH",
-    headers: { ...authHeaders(token), "Content-Type": "text/plain; charset=utf-8" },
-    body: content,
+    headers: { ...authHeaders(token), "Content-Type": contentType },
+    body,
   })
   if (!response.ok) return response
   if (response.value.status === 412) return Err({ kind: "conflict" })
   if (!response.value.ok) return Err(failureOf(response.value))
   return json<DriveFile>(response.value)
+}
+
+export const trashFile = async (token: string, fileId: string): Promise<Result<DriveFile, Failure>> => {
+  const response = await call(`${ROOT}/files/${encodeURIComponent(fileId)}?fields=id,name,mimeType,md5Checksum,modifiedTime,version,size,parents,headRevisionId`, {
+    method: "PATCH",
+    headers: { ...authHeaders(token), "Content-Type": "application/json" },
+    body: JSON.stringify({ trashed: true }),
+  })
+  if (!response.ok) return response
+  if (!response.value.ok) return Err(failureOf(response.value))
+  return json<DriveFile>(response.value)
+}
+
+export const pinRevision = async (
+  token: string,
+  fileId: string,
+  revisionId: string,
+): Promise<Result<void, Failure>> => {
+  const response = await call(`${ROOT}/files/${encodeURIComponent(fileId)}/revisions/${encodeURIComponent(revisionId)}?fields=id,keepForever`, {
+    method: "PATCH",
+    headers: { ...authHeaders(token), "Content-Type": "application/json" },
+    body: JSON.stringify({ keepForever: true }),
+  })
+  if (!response.ok) return response
+  return response.value.ok ? Ok(undefined) : Err(failureOf(response.value))
 }
 
 export const createFolder = async (

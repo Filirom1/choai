@@ -11,6 +11,7 @@ import { push as pushDrive, type Snag as DriveFailure } from "~/core/google-driv
 import { isGoogleDriveRemote, isGitHubRemote } from "~/core/journal/remote"
 import { journal, saveToLocalFolder, type LocalTrouble } from "~/core/journal/store"
 import { changedPaths } from "~/core/journal/local"
+import { isHiddenPath } from "~/core/journal/hidden"
 import { differsFrom } from "~/core/journal/unsaved-text"
 import { REMOTES } from "~/core/address/address"
 import { getOrUndefined } from "~/core/lib/monad"
@@ -28,7 +29,7 @@ export function BackupButton(props: { readonly onSaved?: () => void; readonly sa
   const localSaveReady = (): boolean => {
     const open = getOrUndefined(journal())
     if (open?.remote !== undefined || open?.local === undefined) return true
-    const edited = Object.entries(open.source.files).some(([path, text]) => differsFrom(path, text))
+    const edited = Object.entries(open.source.files).some(([path, text]) => !isHiddenPath(path) && differsFrom(path, text))
     return !edited && changedPaths(open.local.base, open.source.files).length > 0
   }
 

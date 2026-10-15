@@ -310,8 +310,6 @@ export const outcomeWords = (outcome: Outcome): string => {
       return t("github.pulled", { files: outcome.files })
     case "pushed":
       return t("github.pushed", { files: outcome.files })
-    case "merged":
-      return t("github.merged")
     case "nothing":
       return t("github.nothing")
   }
@@ -327,6 +325,14 @@ const snagWords = (snag: Snag): string => {
       return t("github.noJournal")
     case "diverged":
       return t("github.diverged", { path: snag.path })
+    case "local-changes":
+      return t("github.localChanges", { path: snag.path })
+    case "partial":
+      return t("github.partial", {
+        written: snag.written.join(", "),
+        remaining: snag.remaining.join(", "),
+        cause: snagWords(snag.cause),
+      })
     case "hledger":
       return ""
     case "github":

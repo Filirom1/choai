@@ -1,6 +1,6 @@
 import { describe, expect, spyOn, test } from "bun:test"
 
-import { createBinary, listFilesInFolder, listSharedWithMe, listStarred, multipartBody, updateFile } from "../src/core/google-drive/api"
+import { createBinary, listFilesInFolder, listSharedWithMe, listStarred, multipartBody, pinRevision, trashFile, updateBlob, updateFile } from "../src/core/google-drive/api"
 import { changedFromAgreement, type DriveAgreement } from "../src/core/google-drive/kept"
 import { fileName, parentPath, relativePath, safePath } from "../src/core/google-drive/paths"
 
@@ -22,6 +22,7 @@ describe("Google Drive request bodies", () => {
     expect(url.searchParams.get("q")).toBe("'folder-id' in parents and trashed = false")
     expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer token")
     expect(url.searchParams.has("key")).toBe(false)
+    expect(url.searchParams.get("fields")).toContain("headRevisionId")
     fetch.mockRestore()
   })
 
@@ -75,6 +76,33 @@ describe("Google Drive request bodies", () => {
     fetch.mockRestore()
   })
 
+  test("updates a binary companion through the upload endpoint", async () => {
+    const fetch = spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ id: "drive-file", version: "2" })))
+    const result = await updateBlob("token", "drive-file", new Blob([Uint8Array.of(1, 2)], { type: "image/png" }))
+    const [input, init] = fetch.mock.calls[0] ?? []
+    expect(result.ok).toBe(true)
+    expect(String(input)).toContain("/upload/drive/v3/files/drive-file?")
+    expect(init?.method).toBe("PATCH")
+    expect(new Headers(init?.headers).get("Content-Type")).toBe("image/png")
+    expect(init?.body).toBeInstanceOf(Blob)
+    fetch.mockRestore()
+  })
+
+  test("pins a replaced revision and trashes deletions reversibly", async () => {
+    const fetch = spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ id: "revision" })))
+    expect(await pinRevision("token", "drive-file", "revision")).toEqual({ ok: true, value: undefined })
+    expect(await trashFile("token", "drive-file")).toMatchObject({ ok: true })
+    const [revisionUrl, revisionInit] = fetch.mock.calls[0] ?? []
+    const [trashUrl, trashInit] = fetch.mock.calls[1] ?? []
+    expect(String(revisionUrl)).toContain("/files/drive-file/revisions/revision")
+    expect(revisionInit?.method).toBe("PATCH")
+    expect(JSON.parse(String(revisionInit?.body))).toEqual({ keepForever: true })
+    expect(String(trashUrl)).toContain("/files/drive-file?")
+    expect(trashInit?.method).toBe("PATCH")
+    expect(JSON.parse(String(trashInit?.body))).toEqual({ trashed: true })
+    fetch.mockRestore()
+  })
+
   test("updates the same Drive file through the upload endpoint", async () => {
     const fetch = spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
       id: "drive-file",
@@ -98,10 +126,16 @@ describe("Drive agreement checks", () => {
     expect(changedFromAgreement({ id: "drive-file", name: "main.journal", mimeType: "text/plain", md5Checksum: "checksum-1", version: "1" }, agreed)).toBe(false)
   })
 
-  test("blocks changed identity, content, or revision", () => {
+  test("detects changed identity or content but ignores metadata-only revisions", () => {
     expect(changedFromAgreement({ id: "other", name: "main.journal", mimeType: "text/plain", md5Checksum: "checksum-1", version: "1" }, agreed)).toBe(true)
     expect(changedFromAgreement({ id: "drive-file", name: "main.journal", mimeType: "text/plain", md5Checksum: "checksum-2", version: "1" }, agreed)).toBe(true)
-    expect(changedFromAgreement({ id: "drive-file", name: "main.journal", mimeType: "text/plain", md5Checksum: "checksum-1", version: "2" }, agreed)).toBe(true)
+    expect(changedFromAgreement({ id: "drive-file", name: "main.journal", mimeType: "text/plain", md5Checksum: "checksum-1", version: "2" }, agreed)).toBe(false)
+  })
+
+  test("falls back to Drive version when a checksum is unavailable", () => {
+    const withoutChecksum = { ...agreed, md5Checksum: undefined }
+    expect(changedFromAgreement({ id: "drive-file", name: "main.journal", mimeType: "text/plain", version: "1" }, withoutChecksum)).toBe(false)
+    expect(changedFromAgreement({ id: "drive-file", name: "main.journal", mimeType: "text/plain", version: "2" }, withoutChecksum)).toBe(true)
   })
 })
 

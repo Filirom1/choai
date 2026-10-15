@@ -27,6 +27,7 @@ export interface Agreed {
   readonly repoPath: string
   readonly sha: string
   readonly baseText: string
+  readonly baseBinary?: { readonly size: number; readonly fingerprint: string }
   readonly at: number
 }
 
@@ -92,9 +93,23 @@ export const agreedOn = async (book: string, path: string): Promise<Agreed | und
   return row.result?.agreed
 }
 
+export const agreementsFor = async (book: string): Promise<readonly Agreed[]> => {
+  const rows = await within("readonly", [REMOTE], (transaction) =>
+    transaction.objectStore(REMOTE).getAll(IDBKeyRange.bound(`agreed:${book}:`, `agreed:${book}:￿`)) as IDBRequest<Row[]>,
+  )
+  return rowsOf(rows).flatMap((row) => row.agreed === undefined ? [] : [row.agreed])
+}
+
 export const agree = async (book: string, agreed: Agreed): Promise<void> => {
   await within("readwrite", [REMOTE], (transaction) => {
     transaction.objectStore(REMOTE).put({ id: keyOf(book, agreed.path), agreed })
+  })
+  moved()
+}
+
+export const forgetAgreement = async (book: string, path: string): Promise<void> => {
+  await within("readwrite", [REMOTE], (transaction) => {
+    transaction.objectStore(REMOTE).delete(keyOf(book, path))
   })
   moved()
 }

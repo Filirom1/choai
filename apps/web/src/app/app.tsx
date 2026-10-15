@@ -7,6 +7,11 @@ import { getOrUndefined } from "~/core/lib/monad"
 import { ActivityBar, AuxPanel, Shell, SidePanel, TitlesBar, type ActivityItem } from "~/core/lib/solid-workbench-shell"
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/core/components/ui/tooltip"
 import { Button } from "~/core/components/ui/button"
+import { TroubleNote } from "~/core/components/trouble-note"
+import { SnagNote as GitHubSnagNote } from "~/core/components/github-panel"
+import { DriveSnag } from "~/core/components/google-drive-panel"
+import { localFailureWords } from "~/core/components/local-sync-panel"
+import { githubResolutionFailure, SyncResolutionPanel } from "~/core/components/sync-resolution-panel"
 import { ChevronLeftIcon, FunnelIcon, RefreshIcon, PanelLeftIcon, PlusIcon, ImportIcon, CloudIcon } from "~/core/lib/ui/icons"
 import { ReportFilters } from "~/core/components/report-filters"
 import { filtersShown, toggleFilters } from "~/core/reports/filters"
@@ -17,13 +22,18 @@ import { ledgerHasAPlace, statementAt } from "~/core/routes/reports"
 import { ADD, FOOT, NAV, railOf, viewAt } from "./views"
 import type { View } from "~/edition/types"
 import { appName } from "~/edition"
-import { journal, reopenKept } from "~/core/journal/store"
-import { changedPaths } from "~/core/journal/local"
+import { changedOnDisk, journal, localFolderHasPending, reloadLocalFolder, reopenKept, saveToLocalFolder, type LocalTrouble } from "~/core/journal/store"
 import { isGitHubRemote, isGoogleDriveRemote } from "~/core/journal/remote"
-import { agreements as githubAgreements } from "~/core/github/kept"
-import { agreementRevision as driveAgreementRevision } from "~/core/google-drive/kept"
-import { unsent as githubUnsent } from "~/core/github/sync"
-import { unsent as driveUnsent } from "~/core/google-drive"
+import { agreements as githubAgreements, token as githubToken } from "~/core/github/kept"
+import { exportUnknown as exportGitHub, inspect as inspectGitHub, pull as githubPull, push as githubPush, resolve as resolveGitHub, unsent as githubUnsent, type Snag as GitHubSnag, type ResolutionFailure as GitHubResolutionFailure } from "~/core/github/sync"
+import type { FileSnapshot } from "~/core/sync/conflict"
+import { forgetResolution, resolutionsFor } from "~/core/sync/kept"
+import { agreementRevision as driveAgreementRevision, checkRevision as driveCheckRevision, clientId as driveClientId, clientIdNow as driveClientIdNow, keepClientId as keepDriveClientId } from "~/core/google-drive/kept"
+import { accessToken as driveAccessToken, loadIdentity as loadDriveIdentity, sessionToken as driveSessionToken } from "~/core/google-drive/auth"
+import { behind as driveBehind, exportUnknownResolution as exportDrive, inspectResolution as inspectDrive, pull as drivePull, push as drivePush, resolveResolution as resolveDrive, unsent as driveUnsent, type Snag as DriveTrouble, type ResolutionFailure as DriveResolutionFailure } from "~/core/google-drive"
+import { exportLocalResolution, inspectLocalResolution, resolveLocalResolution, type LocalResolutionFailure } from "~/core/journal/local-resolution"
+import { permitLocalFolder } from "~/core/journal/local"
+import { behindNow, refreshBehind } from "~/core/components/git/kept-in-view"
 import { searchFor, useQuery } from "~/core/journal/query"
 import { JevKeyPanel } from "~/core/components/jev-key-panel"
 import { AiImportPanel } from "~/core/components/ai-import-panel"
@@ -663,17 +673,250 @@ export function Layout(props: ParentProps) {
   )
 }
 
-/**
- * Opens the filters above the list, and puts them away again.
- *
- * Two states it shows apart: pressed while the filters are open, and filled in
- * with a mark beside it while the query narrows what they set — which matters
- * most once they are put away, since a report that is not all of the books
- * looks like one that is. Read off the query, so a date typed into the title
- * bar marks it as well.
- */
+type SyncAttention =
+  | { readonly at: "changed"; readonly files: readonly string[] }
+  | { readonly at: "check" }
+
+type SyncFailure =
+  | { readonly at: "github"; readonly snag: GitHubSnag }
+  | { readonly at: "drive"; readonly snag: DriveTrouble }
+  | { readonly at: "local"; readonly trouble: LocalTrouble }
+
+const syncFailureView = (failure: SyncFailure): JSX.Element => {
+  switch (failure.at) {
+    case "github": return <div class="flex flex-col gap-2">
+      <GitHubSnagNote snag={failure.snag} />
+      <Show when={failure.snag.at === "diverged" && failure.snag.snapshot}>{(snapshot) => {
+        const file = snapshot()
+        const local = file.local.content?.kind === "text" ? file.local.content.text : t("github.noSuchFile")
+        const destination = file.destination.content?.kind === "text" ? file.destination.content.text : t("github.noSuchFile")
+        const proposal = failure.snag.at === "diverged" ? failure.snag.proposal : undefined
+        return <details class="rounded border p-2 text-xs">
+          <summary class="cursor-pointer font-medium">{t("github.compare")}: {file.path}</summary>
+          <div class="mt-2 grid gap-2 md:grid-cols-2">
+            <section class="min-w-0"><h3 class="mb-1 font-medium">{t("github.thisCopy")}</h3><pre class="max-h-64 overflow-auto whitespace-pre-wrap rounded bg-muted p-2">{local}</pre></section>
+            <section class="min-w-0"><h3 class="mb-1 font-medium">{t("github.destinationCopy")}</h3><pre class="max-h-64 overflow-auto whitespace-pre-wrap rounded bg-muted p-2">{destination}</pre></section>
+          </div>
+          <Show when={proposal}><section class="mt-2"><h3 class="mb-1 font-medium">{t("github.mergeProposal")}</h3><pre class="max-h-64 overflow-auto whitespace-pre-wrap rounded bg-muted p-2">{proposal}</pre></section></Show>
+        </details>
+      }}</Show>
+    </div>
+    case "drive": return failure.snag.at === "conflict" || failure.snag.at === "local-changes"
+      ? <p class="text-sm text-muted-foreground">{t("syncResolution.providerUnavailable", { files: failure.snag.path })}</p>
+      : <DriveSnag snag={failure.snag} />
+    case "local": return failure.trouble.at === "hledger"
+      ? <TroubleNote trouble={failure.trouble.trouble} />
+      : <p class="text-sm text-error-foreground">{localFailureWords(failure.trouble)}</p>
+  }
+}
+
+const syncAttentionWords = (attention: SyncAttention): string =>
+  attention.at === "changed"
+    ? t("remotes.syncChanged", { files: attention.files.join(", ") })
+    : t("remotes.syncCheck")
+
+const isLocalFolderActive = (current: { readonly local?: unknown; readonly remote?: unknown }): boolean =>
+  current.local !== undefined && current.remote === undefined
+
+const localFailureAsTrouble = (failure: LocalResolutionFailure): LocalTrouble => {
+  if (failure.at === "local") return failure.failure
+  if (failure.at === "hledger") return { at: "hledger", trouble: failure.trouble }
+  if (failure.at === "stale") return { at: "changed", path: failure.path }
+  if (failure.at === "unsupported") return { at: "unsaved" }
+  return failure.failure
+}
+
+type SyncResolutionFailure = GitHubResolutionFailure | DriveResolutionFailure | LocalResolutionFailure
+
+const staleResolution = (failure: SyncResolutionFailure): boolean => failure.at === "stale"
+
+const renderResolutionFailure = (failure: SyncResolutionFailure): JSX.Element => {
+  if (failure.at === "stale") return <p class="text-sm text-error-foreground">{t("syncResolution.stale", { path: failure.path })}</p>
+  if (failure.at === "unsupported") return <p class="text-sm text-error-foreground">{t("syncResolution.unsupported", { path: failure.path })}</p>
+  if (failure.at === "github" || failure.at === "diverged" || failure.at === "not-connected" || failure.at === "no-place" || failure.at === "no-journal" || failure.at === "partial" || failure.at === "local-changes") {
+    return githubResolutionFailure(failure)
+  }
+  if (failure.at === "drive") return <DriveSnag snag={{ at: "drive", failure: failure.failure }} />
+  if (failure.at === "local") return <p class="text-sm text-error-foreground">{localFailureWords(failure.failure)}</p>
+  if (failure.at === "hledger") return <TroubleNote trouble={failure.trouble} />
+  if (failure.at === "local-kept") return <p class="text-sm text-error-foreground">{t("syncResolution.failed")}</p>
+  if (failure.at === "uncertain") return <p class="text-sm text-error-foreground">{t("syncResolution.uncertain", { path: failure.path })}</p>
+  return <p class="text-sm text-error-foreground">{t("syncResolution.failed")}</p>
+}
+
 function BackupNotice(props: { readonly saveRequest: Accessor<number> }): JSX.Element {
   const open = () => getOrUndefined(journal())
+  const [driveIdentityStatus, setDriveIdentityStatus] = createSignal<"loading" | "ready" | "failed">("loading")
+  const [checkRevision, setCheckRevision] = createSignal(0)
+  const [syncing, setSyncing] = createSignal(false)
+  const [syncMessage, setSyncMessage] = createSignal<string | undefined>()
+  const [syncFailure, setSyncFailure] = createSignal<SyncFailure | undefined>()
+  const [conflicts, setConflicts] = createSignal<readonly FileSnapshot[] | undefined>()
+  const [savedResolutions] = createResource(
+    () => {
+      const current = open()
+      return current !== undefined && isGitHubRemote(current.remote) ? current.bookId : undefined
+    },
+    resolutionsFor,
+  )
+  createEffect(on(savedResolutions, (saved) => {
+    const current = open()
+    if (saved?.ok && current !== undefined && conflicts() === undefined) {
+      const latest = saved.value.reduce((found, session) => session.createdAt > (found?.createdAt ?? 0) ? session : found, undefined as typeof saved.value[number] | undefined)
+      if (latest?.bookId === current.bookId) setConflicts(latest.snapshots)
+    }
+  }))
+  onMount(() => {
+    void loadDriveIdentity().then((result) => setDriveIdentityStatus(result.ok ? "ready" : "failed"))
+    const refresh = (): void => {
+      setCheckRevision((revision) => revision + 1)
+      refreshBehind()
+    }
+    const visible = (): void => {
+      if (document.visibilityState === "visible") refresh()
+    }
+    window.addEventListener("focus", refresh)
+    document.addEventListener("visibilitychange", visible)
+    onCleanup(() => {
+      window.removeEventListener("focus", refresh)
+      document.removeEventListener("visibilitychange", visible)
+    })
+  })
+  const [syncAttention] = createResource(
+    () => {
+      const current = open()
+      return current === undefined ? undefined : [
+        current.bookId,
+        JSON.stringify(current.remote),
+        current.local?.handle.name ?? "",
+        githubAgreements(),
+        driveAgreementRevision(),
+        driveCheckRevision(),
+        behindNow().join("\n"),
+        checkRevision(),
+      ].join("\u0000")
+    },
+    async (): Promise<SyncAttention | undefined> => {
+      const current = open()
+      if (current === undefined) return undefined
+      if (isGitHubRemote(current.remote) && current.remote.path !== "") {
+        if (await githubToken() === undefined) return { at: "check" }
+        const inspected = await inspectGitHub()
+        return inspected.ok
+          ? inspected.value.length > 0 ? { at: "changed", files: inspected.value.map(({ path }) => path) } : undefined
+          : { at: "check" }
+      }
+      if (isGoogleDriveRemote(current.remote) && current.remote.path !== "") {
+        const id = await driveClientId()
+        const session = id === undefined ? undefined : driveSessionToken(id)
+        if (session === undefined) return { at: "check" }
+        const result = await driveBehind()
+        return result.ok
+          ? result.value.length > 0 ? { at: "changed", files: result.value } : undefined
+          : { at: "check" }
+      }
+      if (current.local !== undefined) {
+        const result = await changedOnDisk(current)
+        return result.ok
+          ? result.value.length > 0 ? { at: "changed", files: result.value } : undefined
+          : { at: "check" }
+      }
+      return undefined
+    },
+  )
+  const syncLatest = async (): Promise<void> => {
+    const current = open()
+    if (current === undefined) return
+    setSyncing(true)
+    setSyncMessage(undefined)
+    setSyncFailure(undefined)
+    setConflicts(undefined)
+    if (isGitHubRemote(current.remote)) {
+      const inspected = await inspectGitHub()
+      if (!inspected.ok) setSyncFailure({ at: "github", snag: inspected.error })
+      else {
+        if (inspected.value.length > 0) {
+          setConflicts(inspected.value)
+        } else {
+          const pending = await githubUnsent(current)
+          const result = pending.length > 0 ? await githubPush() : await githubPull()
+          if (result.ok) setSyncMessage(t("remotes.syncDone"))
+          else if (result.error.at === "diverged" && result.error.snapshot !== undefined) setConflicts([result.error.snapshot])
+          else setSyncFailure({ at: "github", snag: result.error })
+        }
+      }
+    } else if (isGoogleDriveRemote(current.remote)) {
+      const id = driveClientIdNow()
+      const authorization = driveAccessToken(id)
+      const authorised = await authorization
+      if (!authorised.ok) setSyncFailure({ at: "drive", snag: { at: "not-connected" } })
+      else {
+        await keepDriveClientId(id)
+        const inspected = await inspectDrive()
+        if (!inspected.ok) setSyncFailure({ at: "drive", snag: inspected.error })
+        else if (inspected.value.length > 0) setConflicts(inspected.value)
+        else {
+          const pending = await driveUnsent(current)
+          const result = pending.length > 0 ? await drivePush() : await drivePull()
+          if (result.ok) setSyncMessage(t("remotes.syncDone"))
+          else if (result.error.at === "conflict" || result.error.at === "local-changes") {
+            const refreshed = await inspectDrive()
+            if (refreshed.ok && refreshed.value.length > 0) setConflicts(refreshed.value)
+            else setSyncMessage(t("syncResolution.providerUnavailable", { files: result.error.path }))
+          } else setSyncFailure({ at: "drive", snag: result.error })
+        }
+      }
+    } else if (current.local !== undefined) {
+      const permitted = await permitLocalFolder(current.local)
+      if (!permitted.ok) setSyncFailure({ at: "local", trouble: permitted.error })
+      else {
+        const inspected = await inspectLocalResolution()
+        if (!inspected.ok) setSyncFailure({ at: "local", trouble: localFailureAsTrouble(inspected.error) })
+        else if (inspected.value.length > 0) setConflicts(inspected.value)
+        else {
+          const changed = await changedOnDisk(current)
+          if (!changed.ok) setSyncFailure({ at: "local", trouble: changed.error })
+          else if (changed.value.length > 0) setSyncMessage(t("syncResolution.providerUnavailable", { files: changed.value.join(", ") }))
+          else if (await localFolderHasPending(current)) {
+            const result = await saveToLocalFolder()
+            if (result.ok) setSyncMessage(t("remotes.syncDone"))
+            else setSyncFailure({ at: "local", trouble: result.error })
+          } else {
+            const result = await reloadLocalFolder()
+            if (result.ok) setSyncMessage(t("remotes.syncDone"))
+            else setSyncFailure({ at: "local", trouble: result.error })
+          }
+        }
+      }
+    } else setSyncMessage(t("remotes.syncDone"))
+    setSyncing(false)
+  }
+  const refreshComparison = async (): Promise<void> => {
+    const current = open()
+    if (current === undefined) return
+    setSyncing(true)
+    setSyncFailure(undefined)
+    const inspected = isGitHubRemote(current.remote)
+      ? await inspectGitHub()
+      : isGoogleDriveRemote(current.remote)
+        ? await inspectDrive()
+        : current.local !== undefined ? await inspectLocalResolution() : undefined
+    if (inspected === undefined) setConflicts(undefined)
+    else if (!inspected.ok) {
+      if (isGitHubRemote(current.remote)) setSyncFailure({ at: "github", snag: inspected.error as GitHubSnag })
+      else if (isGoogleDriveRemote(current.remote)) setSyncFailure({ at: "drive", snag: inspected.error as DriveTrouble })
+      else setSyncFailure({ at: "local", trouble: localFailureAsTrouble(inspected.error as LocalResolutionFailure) })
+    } else if (inspected.value.length > 0) setConflicts(inspected.value)
+    else {
+      const saved = await resolutionsFor(current.bookId)
+      const forgotten = saved.ok ? await Promise.all(saved.value.map((session) => forgetResolution(session.id))) : []
+      setConflicts(undefined)
+      setSyncMessage(saved.ok && forgotten.every((result) => result.ok)
+        ? t("syncResolution.noConflicts")
+        : t("syncResolution.storageFailed"))
+    }
+    setSyncing(false)
+  }
   const [hasUnsentFile, { refetch }] = createResource(
     () => {
       const current = open()
@@ -689,26 +932,78 @@ function BackupNotice(props: { readonly saveRequest: Accessor<number> }): JSX.El
     async ({ current }) => {
       if (isGitHubRemote(current.remote)) return (await githubUnsent(current)).length > 0
       if (isGoogleDriveRemote(current.remote)) return (await driveUnsent(current)).length > 0
-      return current.local !== undefined && changedPaths(current.local.base, current.source.files).length > 0
+      return localFolderHasPending(current)
     },
   )
   const show = (): boolean =>
     (open()?.remote !== undefined || open()?.local !== undefined) && hasUnsentFile() === true
 
   return (
-    <Show when={show()}>
-      <aside class="mb-3 flex flex-wrap items-center gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm" aria-label={t("remotes.warningTitle")}>
-        <CloudIcon class="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
-        <div class="min-w-0 flex-1">
-          <p class="font-medium">{t("remotes.warningTitle")}</p>
-          <p class="text-xs text-muted-foreground">{t("remotes.warningBody")}</p>
+    <>
+      <Show when={syncAttention()}>{(attention) => (
+        <aside class="mb-3 flex flex-wrap items-center gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm" role="alert">
+          <CloudIcon class="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
+          <div class="min-w-0 flex-1">
+            <p class="font-medium">{syncAttentionWords(attention())}</p>
+          </div>
+          <Button size="sm" variant="outline" disabled={syncing() || (isGoogleDriveRemote(open()?.remote) && driveIdentityStatus() === "loading")} onClick={() => void syncLatest()}>{syncing() ? t("remotes.syncing") : t("remotes.syncNow")}</Button>
+        </aside>
+      )}</Show>
+      <Show when={syncMessage()}>{(message) => <p role="status" class="mb-3 text-sm text-muted-foreground">{message()}</p>}</Show>
+      <Show when={syncFailure()}>{(failure) => <div class="mb-3 flex flex-col gap-1"><p class="text-sm text-error-foreground">{t("remotes.syncFailed")}</p>{syncFailureView(failure())}</div>}</Show>
+      <Show when={conflicts()}>{(snapshots) => {
+        const current = open()
+        return current === undefined ? undefined : <div class="mb-3">
+          <SyncResolutionPanel
+            bookId={current.bookId}
+            snapshots={snapshots()}
+            onLater={() => setConflicts(undefined)}
+            onApplied={() => {
+              setConflicts(undefined)
+              setCheckRevision((revision) => revision + 1)
+              refreshBehind()
+            }}
+            onRefresh={() => void refreshComparison()}
+            resolveFile={(snapshot, choice) => isGitHubRemote(current.remote)
+              ? resolveGitHub(snapshot, choice)
+              : isGoogleDriveRemote(current.remote)
+                ? resolveDrive(snapshot, choice)
+                : resolveLocalResolution(snapshot, choice)}
+            exportFile={(snapshot) => isGitHubRemote(current.remote)
+              ? exportGitHub(snapshot)
+              : isGoogleDriveRemote(current.remote)
+                ? exportDrive(snapshot)
+                : exportLocalResolution(snapshot)}
+            exportRecovery={isLocalFolderActive(current) ? exportLocalResolution : undefined}
+            renderFailure={renderResolutionFailure}
+            isStale={staleResolution}
+            warning={isGoogleDriveRemote(current.remote) ? t("syncResolution.driveWarning") : isLocalFolderActive(current) ? t("syncResolution.localWarning") : undefined}
+          />
         </div>
-        <BackupButton onSaved={refetch} saveRequest={props.saveRequest} />
-      </aside>
-    </Show>
+      }}</Show>
+      <Show when={show()}>
+        <aside class="mb-3 flex flex-wrap items-center gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm" aria-label={t("remotes.warningTitle")}>
+          <CloudIcon class="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
+          <div class="min-w-0 flex-1">
+            <p class="font-medium">{t("remotes.warningTitle")}</p>
+            <p class="text-xs text-muted-foreground">{t("remotes.warningBody")}</p>
+          </div>
+          <BackupButton onSaved={refetch} saveRequest={props.saveRequest} />
+        </aside>
+      </Show>
+    </>
   )
 }
 
+/**
+ * Opens the filters above the list, and puts them away again.
+ *
+ * Two states it shows apart: pressed while the filters are open, and filled in
+ * with a mark beside it while the query narrows what they set — which matters
+ * most once they are put away, since a report that is not all of the books
+ * looks like one that is. Read off the query, so a date typed into the title
+ * bar marks it as well.
+ */
 function FilterButton(): JSX.Element {
   const [query] = useQuery()
   const reading = createReading(query)

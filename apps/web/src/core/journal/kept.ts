@@ -184,13 +184,18 @@ export const markCurrent = async (id: string): Promise<void> => {
  * stays where it is.
  */
 export const forgetBook = async (id: string): Promise<void> => {
-  await within("readwrite", [BOOKS, FILES, ATTACHMENTS, STATE, STORE.remote], (transaction) => {
+  await within("readwrite", [BOOKS, FILES, ATTACHMENTS, STATE, STORE.remote, STORE.resolutions], (transaction) => {
     transaction.objectStore(BOOKS).delete(id)
     transaction.objectStore(FILES).delete(filesOf(id))
     transaction.objectStore(ATTACHMENTS).delete(filesOf(id))
     const remote = transaction.objectStore(STORE.remote)
     remote.delete(IDBKeyRange.bound(`agreed:${id}:`, `agreed:${id}:￿`))
     remote.delete(IDBKeyRange.bound(`gdrive:agreed:${id}:`, `gdrive:agreed:${id}:￿`))
+    const resolutions = transaction.objectStore(STORE.resolutions)
+    const savedResolutions = resolutions.getAll() as IDBRequest<{ readonly id: string; readonly bookId: string }[]>
+    savedResolutions.onsuccess = () => savedResolutions.result
+      .filter((resolution) => resolution.bookId === id)
+      .forEach((resolution) => resolutions.delete(resolution.id))
     const state = transaction.objectStore(STATE)
     const open = state.get(CURRENT) as IDBRequest<CurrentBook | undefined>
     open.onsuccess = () => {

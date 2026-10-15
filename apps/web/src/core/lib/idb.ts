@@ -13,7 +13,7 @@ const DB = "choai"
  * out below, because someone's books are already in the database by the time it
  * runs.
  */
-const VERSION = 6
+const VERSION = 7
 
 /** The stores, by the name they are opened with. */
 export const STORE = {
@@ -35,6 +35,8 @@ export const STORE = {
    * with it.
    */
   keys: "keys",
+  /** In-progress conflict comparisons, kept off the journal and sync path. */
+  resolutions: "resolutions",
 } as const
 
 export type StoreName = (typeof STORE)[keyof typeof STORE]
@@ -91,6 +93,9 @@ const raise = (db: IDBDatabase, upgrade: IDBTransaction, from: number): void => 
   if (from < 6) {
     db.createObjectStore(STORE.attachments, { keyPath: ["book", "path"] })
     moveOldAttachments(upgrade)
+  }
+  if (from < 7) {
+    db.createObjectStore(STORE.resolutions, { keyPath: "id" })
   }
 }
 

@@ -90,6 +90,9 @@ export const declaringCompanion = (text: string, path: string): string => {
   return [...lines.slice(0, at), `; ${NAME}: ${path}`, ...gap, ...lines.slice(at)].join("\n")
 }
 
+export const excludingCompanion = (text: string, path: string): string =>
+  text.split("\n").filter((line) => DECLARED.exec(line)?.[1] !== path).join("\n")
+
 const isComment = (line: string): boolean => /^\s*[;#*]/.test(line)
 
 /**
