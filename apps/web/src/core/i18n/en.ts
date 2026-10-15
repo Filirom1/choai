@@ -586,6 +586,8 @@ export const en = {
     saving: "Saving…",
     saved: "Save complete.",
     configure: "Review the backup destination",
+    backToSync: "Back to synchronization",
+    noPendingChanges: "No changes are pending.",
   },
   git: {
     repository: "Repository",
@@ -614,6 +616,7 @@ export const en = {
     noPatch: "GitHub did not send the change to this file: it is too large, or it is not text.",
     hidden: "{{ count }} unchanged lines",
     sinceSent: "Since it was last sent",
+    sinceSaved: "Since it was last saved to the folder",
     back: "Back to the history",
   },
   licenses: {

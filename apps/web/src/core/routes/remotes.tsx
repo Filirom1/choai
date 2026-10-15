@@ -5,6 +5,8 @@ import { GoogleDrivePanel } from "~/core/components/google-drive-panel"
 import { GoogleDriveHistory } from "~/core/components/google-drive-history"
 import { Button } from "~/core/components/ui/button"
 import { LocalSyncPanel } from "~/core/components/local-sync-panel"
+import { PendingChangeView } from "~/core/components/pending-changes"
+import { pendingChangesNow } from "~/core/components/git/kept-in-view"
 import { pageOf } from "~/core/address/address"
 import { addressOf, lookingAt } from "~/core/components/git/looking"
 import { useMoves } from "~/core/address/moves"
@@ -20,15 +22,19 @@ export default function Remotes(): JSX.Element {
   const [importingFromDrive, setImportingFromDrive] = createSignal(true)
   const current = () => getOrUndefined(journal())
   const looking = () => lookingAt(pageOf(location.hash))
+  const changing = () => {
+    const now = looking()
+    return now.at === "change" ? now.path : ""
+  }
+  const selectedDriveRevision = () => {
+    const now = looking()
+    return now.at === "drive-history" ? now.revision : undefined
+  }
   const showingLocal = (): boolean =>
     looking().at === "local" || (looking().at !== "connection" && current()?.remote === undefined && current()?.local !== undefined)
   const showingDrive = (): boolean =>
     looking().at === "drive" || (looking().at !== "connection" && isGoogleDriveRemote(current()?.remote))
   const active = () => current()?.remote?.provider ?? (current()?.local === undefined ? undefined : "local")
-  const selectedDriveRevision = () => {
-    const now = looking()
-    return now.at === "drive-history" ? now.revision : undefined
-  }
   const driveRemote = (): GoogleDriveRemote | undefined => {
     const remote = current()?.remote
     return isGoogleDriveRemote(remote) ? remote : undefined
@@ -71,20 +77,24 @@ export default function Remotes(): JSX.Element {
       <Show when={showingLocal()} fallback={
         <Show when={showingDrive()} fallback={<Git />}>
           <Show when={looking().at === "drive-history"} fallback={
-            <Show when={current() === undefined || importingFromDrive()} fallback={
-              <>
-                <Button type="button" variant="outline" onClick={() => setImportingFromDrive(true)}>
-                  {t("books.fromGoogleDrive")}
-                </Button>
-                <GoogleDrivePanel bound={{ into: "this-book" }} />
-              </>
-            }>
-              <Show when={current() !== undefined}>
-                <Button type="button" variant="ghost" onClick={() => setImportingFromDrive(false)}>
-                  {t("gdrive.manage")}
-                </Button>
+            <Show when={looking().at === "change"} fallback={
+              <Show when={current() === undefined || importingFromDrive()} fallback={
+                <>
+                  <Button type="button" variant="outline" onClick={() => setImportingFromDrive(true)}>
+                    {t("books.fromGoogleDrive")}
+                  </Button>
+                  <GoogleDrivePanel bound={{ into: "this-book" }} />
+                </>
+              }>
+                <Show when={current() !== undefined}>
+                  <Button type="button" variant="ghost" onClick={() => setImportingFromDrive(false)}>
+                    {t("gdrive.manage")}
+                  </Button>
+                </Show>
+                <GoogleDrivePanel bound={{ into: "new-book", taken: moves.toTheJournal }} />
               </Show>
-              <GoogleDrivePanel bound={{ into: "new-book", taken: moves.toTheJournal }} />
+            }>
+              <PendingChangeView path={changing()} files={pendingChangesNow() ?? []} since={t("git.sinceSent")} back={t("remotes.backToSync")} backHref={addressOf({ at: "drive" })} emptyMessage={t("remotes.noPendingChanges")} />
             </Show>
           }>
             <Show when={driveRemote()}>{(remote) => (
@@ -97,8 +107,12 @@ export default function Remotes(): JSX.Element {
           </Show>
         </Show>
       }>
-        <Show when={current()?.local} fallback={<p class="text-sm text-muted-foreground">{t("local.notLinked")}</p>}>
-          <LocalSyncPanel />
+        <Show when={looking().at === "change"} fallback={
+          <Show when={current()?.local} fallback={<p class="text-sm text-muted-foreground">{t("local.notLinked")}</p>}>
+            <LocalSyncPanel />
+          </Show>
+        }>
+          <PendingChangeView path={changing()} files={pendingChangesNow() ?? []} since={t("git.sinceSaved")} back={t("remotes.backToSync")} backHref={addressOf({ at: "local" })} emptyMessage={t("remotes.noPendingChanges")} />
         </Show>
       </Show>
     </div>

@@ -1,9 +1,10 @@
-import { For, Show, createResource, createSignal, type JSX } from "solid-js"
+import { Show, createResource, createSignal, type JSX } from "solid-js"
 import { useLocation } from "@solidjs/router"
 
 import { Button } from "~/core/components/ui/button"
+import { ChangesList } from "~/core/components/pending-changes"
 import { SnagNote, outcomeWords } from "~/core/components/github-panel"
-import { behindNow, unsentNow } from "~/core/components/git/kept-in-view"
+import { behindNow, pendingChangesNow } from "~/core/components/git/kept-in-view"
 import { addressOf, lookingAt, type Looking } from "~/core/components/git/looking"
 
 import { agreements, token } from "~/core/github/kept"
@@ -38,17 +39,16 @@ export function RemoteExplorer(props: {
 
   const open = () => getOrUndefined(journal())
   const connected = (): boolean => (key() ?? "") !== "" && (open()?.remote?.path ?? "") !== ""
-  const waiting = () => unsentNow() ?? []
+  const waiting = () => pendingChangesNow() ?? []
 
   const go = (looking: Looking): void => {
     moves.goTo(addressOf(looking))
     props.onChosen?.()
   }
-  const showing = (path: string): boolean => {
+  const selectedPath = (): string | undefined => {
     const now = lookingAt(pageOf(location.hash))
-    return appPath(location.pathname) === REMOTES && now.at === "change" && now.path === path
+    return appPath(location.pathname) === REMOTES && now.at === "change" ? now.path : undefined
   }
-
   const run = async (work: () => Promise<Result<Outcome, Snag>>): Promise<void> => {
     setBusy(true)
     setSaid(undefined)
@@ -91,6 +91,7 @@ export function RemoteExplorer(props: {
         >
           {remote?.provider === "google-drive" ? remote.folderName || remote.folderId : t("gdrive.title")}
         </button>
+        <ChangesList files={waiting()} selected={selectedPath()} onChoose={(path) => go({ at: "change", path })} emptyMessage={t("remotes.noPendingChanges")} />
         <Heading>{t("gdrive.history")}</Heading>
         <button
           type="button"
@@ -111,6 +112,7 @@ export function RemoteExplorer(props: {
         <button type="button" onClick={() => go({ at: "local" })} class="w-full truncate px-3 py-1 text-left text-xs font-mono hover:bg-accent hover:text-accent-foreground">
           {open()?.local?.handle.name}
         </button>
+        <ChangesList files={waiting()} selected={selectedPath()} onChoose={(path) => go({ at: "change", path })} emptyMessage={t("remotes.noPendingChanges")} />
       </div>
     )
   }
@@ -172,41 +174,7 @@ export function RemoteExplorer(props: {
           <Show when={snag()}>{(cause) => <SnagNote snag={cause()} />}</Show>
         </div>
 
-        <Heading>
-          {t("git.changes")}
-          <Show when={waiting().length > 0}>
-            <span class="rounded-full bg-muted px-1.5 text-[0.65rem] text-muted-foreground">{waiting().length}</span>
-          </Show>
-        </Heading>
-        <Show
-          when={waiting().length > 0}
-          fallback={<p class="px-3 text-xs text-muted-foreground">{t("git.noChanges")}</p>}
-        >
-          <ul>
-            <For each={waiting()}>
-              {(file) => (
-                <li>
-                  <button
-                    type="button"
-                    onClick={() => go({ at: "change", path: file.path })}
-                    title={file.path}
-                    class="flex w-full items-center gap-2 px-3 py-1 text-left text-xs hover:bg-accent hover:text-accent-foreground"
-                    classList={{ "bg-accent text-accent-foreground": showing(file.path) }}
-                  >
-                    <span class="min-w-0 flex-1 truncate font-mono">{file.path}</span>
-                    <span
-                      class="shrink-0 font-mono font-semibold"
-                      classList={{ "text-success-foreground": file.isNew, "text-primary": !file.isNew }}
-                      title={file.isNew ? t("git.added") : t("git.modified")}
-                    >
-                      {file.isNew ? "A" : "M"}
-                    </span>
-                  </button>
-                </li>
-              )}
-            </For>
-          </ul>
-        </Show>
+        <ChangesList files={waiting()} selected={selectedPath()} onChoose={(path) => go({ at: "change", path })} emptyMessage={t("git.noChanges")} />
 
         <Heading>{t("git.history")}</Heading>
         <button

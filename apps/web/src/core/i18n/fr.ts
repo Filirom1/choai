@@ -365,8 +365,15 @@ export const fr: Dictionary = {
     saving: "Sauvegarde en cours…",
     saved: "Sauvegarde terminée.",
     configure: "Vérifier la destination de sauvegarde",
+    backToSync: "Retour à la synchronisation",
+    noPendingChanges: "Aucun changement en attente.",
   },
-  git: { ...en.git, repository: "Dépôt", connect: "Se connecter à GitHub" },
+  git: {
+    ...en.git,
+    repository: "Dépôt",
+    connect: "Se connecter à GitHub",
+    sinceSaved: "Depuis la dernière sauvegarde dans le dossier",
+  },
   github: {
     ...en.github,
     title: "Stockage cloud",

@@ -1,10 +1,10 @@
-import { Show, createMemo, onMount, type JSX } from "solid-js"
+import { Show, onMount, type JSX } from "solid-js"
 import { A, useLocation } from "@solidjs/router"
 
 import { Button } from "~/core/components/ui/button"
 import { GitHubPanel, SnagNote } from "~/core/components/github-panel"
 import { CommitView } from "~/core/components/git/commit-view"
-import { DiffView } from "~/core/components/git/diff-view"
+import { PendingChangeView } from "~/core/components/pending-changes"
 import { GraphView } from "~/core/components/git/graph-view"
 import {
   connectedNow,
@@ -12,7 +12,7 @@ import {
   readHistoryAgain,
   showOlder,
   shownNow as shown,
-  unsentNow,
+  pendingChangesNow,
   wantHistory,
 } from "~/core/components/git/kept-in-view"
 import { STEP } from "~/core/github/history"
@@ -20,7 +20,6 @@ import { addressOf, lookingAt } from "~/core/components/git/looking"
 import { REMOTES, pageOf } from "~/core/address/address"
 import { journal } from "~/core/journal/store"
 import { useMoves } from "~/core/address/moves"
-import { aroundChanges, changes, lineDiff } from "~/core/lib/diff"
 import { getOrUndefined } from "~/core/lib/monad"
 import { t } from "~/core/i18n"
 
@@ -54,7 +53,7 @@ export default function Git(): JSX.Element {
   return (
     <Show when={!connecting()} fallback={<Connection />}>
       <Show when={changing()} fallback={<HistoryView commit={opened()} />}>
-        {(path) => <ChangeView path={path()} />}
+        {(path) => <PendingChangeView path={path()} files={pendingChangesNow() ?? []} since={t("git.sinceSent")} back={t("git.back")} backHref={`${REMOTES}#work`} emptyMessage={t("git.noChanges")} />}
       </Show>
     </Show>
   )
@@ -69,36 +68,6 @@ function Connection(): JSX.Element {
         </A>
       </Show>
       <GitHubPanel bound={getOrUndefined(journal()) === undefined ? { into: "new-book" } : { into: "this-book" }} />
-    </div>
-  )
-}
-
-function ChangeView(props: { readonly path: string }): JSX.Element {
-  const file = () => (unsentNow() ?? []).find((each) => each.path === props.path)
-  const diff = createMemo(() => {
-    const found = file()
-    return found === undefined ? [] : lineDiff(found.before, found.after)
-  })
-  const counted = () => changes(diff())
-
-  return (
-    <div class="flex flex-col gap-3">
-      <A href={`${REMOTES}#work`} class="self-start text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground">
-        {t("git.back")}
-      </A>
-      <header class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h2 class="font-mono text-sm font-medium">{props.path}</h2>
-        <span class="text-xs text-muted-foreground">{t("git.sinceSent")}</span>
-        <Show when={file()}>
-          <span class="text-xs">
-            <span class="text-success-foreground">+{counted().added}</span>{" "}
-            <span class="text-error-foreground">−{counted().removed}</span>
-          </span>
-        </Show>
-      </header>
-      <Show when={file()} fallback={<p class="text-sm text-muted-foreground">{t("git.noChanges")}</p>}>
-        <DiffView lines={aroundChanges(diff())} />
-      </Show>
     </div>
   )
 }

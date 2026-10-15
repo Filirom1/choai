@@ -621,6 +621,8 @@ export const ja: Dictionary = {
     saving: "保存中…",
     saved: "保存が完了しました。",
     configure: "バックアップ先を確認",
+    backToSync: "同期に戻る",
+    noPendingChanges: "保留中の変更はありません。",
   },
   git: {
     repository: "リポジトリ",
@@ -649,6 +651,7 @@ export const ja: Dictionary = {
     noPatch: "このファイルの変更は GitHub から届きませんでした。大きすぎるか、テキストではありません。",
     hidden: "変更のない {{ count }} 行",
     sinceSent: "前回送ってから",
+    sinceSaved: "フォルダーへの前回の保存から",
     back: "履歴に戻る",
   },
   licenses: {

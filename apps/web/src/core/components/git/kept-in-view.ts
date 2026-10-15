@@ -1,28 +1,47 @@
 import { createEffect, createResource, createRoot, createSignal, on, type Accessor, type Resource } from "solid-js"
 
+import { agreementRevision as driveAgreements } from "~/core/google-drive/kept"
+import { unsent as driveUnsent } from "~/core/google-drive/sync"
 import { agreements, token } from "~/core/github/kept"
 import { STEP, drawn, readHistory, readOlder, type History, type Read } from "~/core/github/history"
 import { behind, unsent, type Snag, type Unsent } from "~/core/github/sync"
+import { isHiddenPath } from "~/core/journal/hidden"
 import { journal } from "~/core/journal/store"
-import { isGitHubRemote } from "~/core/journal/remote"
+import { isGitHubRemote, isGoogleDriveRemote } from "~/core/journal/remote"
 import { getOrUndefined, type Result } from "~/core/lib/monad"
 
 /**
- * What the source control screen and the list beside it both read.
+ * What the change list and its detail view both read.
  *
- * Held once rather than by each, so sending from the list is seen by the page
- * without either asking the other, and so the history is read once for both.
+ * Held once rather than by each, so a save or send from the list is seen by the
+ * detail view without either asking the other, and the history is read once.
  */
 
 const [waiting] = createRoot(() =>
   createResource(
-    () => ({ open: getOrUndefined(journal()), told: agreements() }),
-    async ({ open }): Promise<readonly Unsent[]> => (open === undefined ? [] : unsent(open)),
+    () => ({
+      open: getOrUndefined(journal()),
+      github: agreements(),
+      drive: driveAgreements(),
+    }),
+    async ({ open }): Promise<readonly Unsent[]> => {
+      if (open === undefined) return []
+      if (isGitHubRemote(open.remote)) return unsent(open)
+      if (isGoogleDriveRemote(open.remote)) return driveUnsent(open)
+      const local = open.local
+      if (local === undefined) return []
+      return Object.entries(open.source.files).flatMap(([path, after]) => {
+        const before = local.base[path]
+        return isHiddenPath(path) || after === before
+          ? []
+          : [{ path, before: before ?? "", after, isNew: before === undefined }]
+      })
+    },
   ),
 )
 
-/** Every file a push would send now, beside what it was when last sent. */
-export const unsentNow: Resource<readonly Unsent[]> = waiting
+/** Text files changed from the copy this book is kept with. */
+export const pendingChangesNow: Resource<readonly Unsent[]> = waiting
 
 /**
  * What GitHub has that this device has not taken, asked when a book is opened
