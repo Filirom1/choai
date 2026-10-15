@@ -77,12 +77,12 @@ export const ENTRY = "/"
  * `work` is the page's work in place of its list, for a page with no part of
  * its own to name; the rest are the dock, which holds one at a time.
  */
-export type Layer = "work" | "compose" | "edit" | "import" | "connect" | "review" | "ledger"
+export type Layer = "work" | "compose" | "edit" | "import" | "csv-import" | "connect" | "review" | "ledger"
 
 /** In the order they are written, so the same screen is always the same address. */
-const LAYERS: readonly Layer[] = ["work", "compose", "edit", "import", "connect", "review", "ledger"]
+const LAYERS: readonly Layer[] = ["work", "compose", "edit", "import", "csv-import", "connect", "review", "ledger"]
 
-const DOCKED: readonly Layer[] = ["compose", "edit", "import", "connect", "review", "ledger"]
+const DOCKED: readonly Layer[] = ["compose", "edit", "import", "csv-import", "connect", "review", "ledger"]
 
 const JOIN = "+"
 

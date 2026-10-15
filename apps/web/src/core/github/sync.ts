@@ -4,7 +4,7 @@ import { companionsIn } from "~/core/journal/companions"
 import { documentSettingsFromFiles } from "~/core/journal/book-config"
 import { documentPathsInFiles } from "~/core/journal/documents"
 import { includedBy } from "~/core/journal/layout"
-import { isHiddenPath } from "~/core/journal/hidden"
+import { hledgerLatestPaths, isHiddenPath, isHledgerLatestPath } from "~/core/journal/hidden"
 import { attachmentOf, putAttachments, type GitHubRemote } from "~/core/journal/kept"
 import { isGitHubRemote } from "~/core/journal/remote"
 import type { Trouble } from "~/core/hledger/wire"
@@ -147,19 +147,27 @@ const take = async (
   const directory = directoryOf(remote.path)
   const tree = await repositoryFiles(key, { owner: remote.owner, repo: remote.repo }, remote.branch || "HEAD")
   if (!tree.ok) return Err({ at: "github", failure: tree.error })
-  const paths = tree.value.filter((path) => !isHiddenPath(path) && (path === remote.path || path.startsWith(directory)))
-  if (!paths.includes(remote.path)) return Err({ at: "github", failure: { kind: "no-such-file" } })
-
   const relative = (path: string): string => path.slice(directory.length)
   const root = await fetchFile(key, where(remote, remote.path))
   if (!root.ok) return Err({ at: "github", failure: root.error })
   const declared = new Set(companionsIn(root.value.text))
+  const relativePaths = tree.value.filter((path) => path === remote.path || path.startsWith(directory)).map(relative)
+  const latestPaths = new Set([
+    ...[...declared].filter(isHledgerLatestPath),
+    ...hledgerLatestPaths(relativePaths),
+  ])
+  const paths = tree.value.filter((path) =>
+    (path === remote.path || path.startsWith(directory)) &&
+    (!isHiddenPath(path) || latestPaths.has(relative(path))),
+  )
+  if (!paths.includes(remote.path)) return Err({ at: "github", failure: { kind: "no-such-file" } })
   const included = new Set(includedBy(root.value.text))
-  const knownText = (path: string): boolean => textPath(path) || included.has(relative(path))
-  const knownBinary = (path: string): boolean => binaryPath(path)
+  const latestCompanion = (path: string): boolean => latestPaths.has(relative(path))
+  const knownText = (path: string): boolean => textPath(path) || included.has(relative(path)) || latestCompanion(path)
+  const knownBinary = (path: string): boolean => binaryPath(path) && !latestCompanion(path)
   const unknown = (path: string): boolean => path !== remote.path &&
     !knownText(path) && !knownBinary(path) && !declared.has(relative(path))
-  const binary = (path: string): boolean => knownBinary(path) || declared.has(relative(path)) || unknown(path)
+  const binary = (path: string): boolean => knownBinary(path) || (declared.has(relative(path)) && !latestCompanion(path)) || unknown(path)
   const fetched = await Promise.all(paths.filter((path) => path === remote.path || (!binary(path) && !unknown(path))).map(async (repoPath) => {
     if (repoPath === remote.path) {
       return { kind: "text" as const, path: relative(repoPath), repoPath, text: root.value.text, sha: root.value.sha }
@@ -241,8 +249,12 @@ const localChangedPaths = async (
     ...open.source.attachments.map(({ path }) => path),
     ...agreements.filter(({ baseBinary }) => baseBinary !== undefined).map(({ path }) => path),
   ])
+  const latest = [...new Set([
+    ...Object.values(open.source.files).flatMap(companionsIn),
+    ...hledgerLatestPaths(Object.keys(open.source.files)),
+  ])].filter(isHledgerLatestPath)
   const textPaths = [...new Set([...Object.keys(open.source.files), ...agreements.map(({ path }) => path)])]
-    .filter((path) => !isHiddenPath(path) && !binaryPaths.has(path))
+    .filter((path) => !isHiddenPath(path, latest) && !binaryPaths.has(path))
   const changedText = textPaths.filter((path) => open.source.files[path] !== byPath.get(path)?.baseText)
   const changedBinary = await Promise.all([...binaryPaths].filter((path) => !isHiddenPath(path)).map(async (path) => {
     const agreement = byPath.get(path)
@@ -271,8 +283,12 @@ const changedFiles = async (
   book: string,
   files: Readonly<Record<string, string>>,
 ): Promise<readonly { path: string; text: string; agreed: Agreed | undefined }[]> => {
+  const latest = [...new Set([
+    ...Object.values(files).flatMap(companionsIn),
+    ...hledgerLatestPaths(Object.keys(files)),
+  ])].filter(isHledgerLatestPath)
   const all = await Promise.all(
-    Object.entries(files).filter(([path]) => !isHiddenPath(path)).map(async ([path, text]) => ({ path, text, agreed: await agreedOn(book, path) })),
+    Object.entries(files).filter(([path]) => !isHiddenPath(path, latest)).map(async ([path, text]) => ({ path, text, agreed: await agreedOn(book, path) })),
   )
   return all.filter((file) => file.agreed?.baseText !== file.text)
 }
@@ -302,25 +318,32 @@ export const inspect = async (): Promise<Result<readonly FileSnapshot[], Snag>> 
   const tree = await repositoryFiles(key, { owner: remote.owner, repo: remote.repo }, remote.branch || "HEAD")
   if (!tree.ok) return Err({ at: "github", failure: tree.error })
   const directory = directoryOf(remote.path)
-  const remotePaths = tree.value.flatMap((path) => path.startsWith(directory) && !isHiddenPath(path) ? [path.slice(directory.length)] : [])
+  const relativeTreePaths = tree.value.filter((path) => path.startsWith(directory)).map((path) => path.slice(directory.length))
+  const companionPaths = new Set([
+    ...Object.values(open.source.files).flatMap(companionsIn),
+    ...hledgerLatestPaths([...relativeTreePaths, ...Object.keys(open.source.files)]),
+  ])
+  const remotePaths = tree.value.flatMap((path) => path.startsWith(directory) &&
+    (!isHiddenPath(path) || (isHledgerLatestPath(path.slice(directory.length)) && companionPaths.has(path.slice(directory.length))))
+    ? [path.slice(directory.length)] : [])
   const knownAgreements = await agreementsFor(open.bookId)
   const agreementByPath = new Map(knownAgreements.map((agreement) => [agreement.path, agreement]))
-  const companionPaths = new Set(Object.values(open.source.files).flatMap(companionsIn))
   const includedPaths = new Set(Object.values(open.source.files).flatMap(includedBy))
   const paths = [...new Set([
     ...Object.keys(open.source.files),
     ...open.source.attachments.map(({ path }) => path),
     ...knownAgreements.map((agreement) => agreement.path),
     ...remotePaths,
-  ])].filter((path) => !isHiddenPath(path))
+  ])].filter((path) => !isHiddenPath(path, [...companionPaths].filter(isHledgerLatestPath)))
   const files = await Promise.all(paths.map(async (path) => {
     const agreement = agreementByPath.get(path)
     const repoPath = agreement?.repoPath ?? `${directory}${path}`
     const localAttachment = open.source.attachments.some((attachment) => attachment.path === path)
-    const knownCompanion = localAttachment || companionPaths.has(path) || agreement?.baseBinary !== undefined || binaryPath(path)
-    const knownAccounting = open.source.files[path] !== undefined || includedPaths.has(path) || textPath(path)
+    const latestCompanion = isHledgerLatestPath(path) && companionPaths.has(path)
+    const knownCompanion = localAttachment || (companionPaths.has(path) && !latestCompanion) || agreement?.baseBinary !== undefined || (binaryPath(path) && !latestCompanion)
+    const knownAccounting = open.source.files[path] !== undefined || includedPaths.has(path) || textPath(path) || latestCompanion
     const isBinary = knownCompanion || (!knownAccounting && !knownCompanion)
-    const role = knownCompanion ? "companion" as const : knownAccounting ? "accounting" as const : "unknown" as const
+    const role = knownCompanion || latestCompanion ? "companion" as const : knownAccounting ? "accounting" as const : "unknown" as const
     if (isBinary) {
       const declaredLocally = open.source.attachments.some((attachment) => attachment.path === path)
       const [storedBlob, fetched] = await Promise.all([
@@ -623,8 +646,12 @@ export const behind = async (): Promise<Result<readonly string[], Snag>> => {
   const { token: key, open } = reach.value
   const remote = reach.value.remote
   const agreed = await agreementsFor(open.bookId)
+  const managedLatest = [
+    ...Object.values(open.source.files).flatMap(companionsIn).filter(isHledgerLatestPath),
+    ...hledgerLatestPaths(Object.keys(open.source.files)),
+  ]
   const asked = await Promise.all(
-    agreed.filter(({ path }) => !isHiddenPath(path)).map(async (one) => ({ one, now: await fetchFile(key, where(remote, one.repoPath)) })),
+    agreed.filter(({ path }) => !isHiddenPath(path, managedLatest)).map(async (one) => ({ one, now: await fetchFile(key, where(remote, one.repoPath)) })),
   )
 
   const unanswered = asked.flatMap(({ now }) => (!now.ok && now.error.kind !== "no-such-file" ? [now.error] : []))

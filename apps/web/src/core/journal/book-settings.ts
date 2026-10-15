@@ -10,6 +10,7 @@ import {
   textOfBookConfig,
   type BookConfig,
   type BookConfigTrouble,
+  validImportSettings,
 } from "./book-config"
 import {
   DEFAULT_DOCUMENT_SETTINGS,
@@ -23,6 +24,7 @@ export type BookSettingsTrouble =
   | { readonly kind: "book-changed" }
   | { readonly kind: "invalid-config"; readonly trouble: BookConfigTrouble }
   | { readonly kind: "invalid-documents" }
+  | { readonly kind: "invalid-imports" }
   | { readonly kind: "journal"; readonly trouble: Trouble }
   | { readonly kind: "storage"; readonly cause: unknown }
 
@@ -58,6 +60,7 @@ const keep = async (
 
     const next = update(config.value)
     if (!validDocumentSettings(next.documents)) return Err({ kind: "invalid-documents" })
+    if (!validImportSettings(next.imports)) return Err({ kind: "invalid-imports" })
 
     const written = await putFiles({
       [BOOK_CONFIG_PATH]: textOfBookConfig(next),
@@ -67,7 +70,7 @@ const keep = async (
 }
 
 export const saveBookSettings = (
-  settings: Pick<BookConfig, "documents" | "invert">,
+  settings: Pick<BookConfig, "documents" | "invert" | "imports">,
 ): Promise<Result<BookConfig, BookSettingsTrouble>> =>
   keep((current) => ({ ...current, ...settings }))
 

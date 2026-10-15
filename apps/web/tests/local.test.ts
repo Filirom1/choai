@@ -52,6 +52,28 @@ describe("original folder", () => {
     expect(changedPaths({}, { ".env": "secret", "history/README.md": "docs" })).toEqual(["history/README.md"])
   })
 
+  test("keeps a matching hledger checkpoint visible to local sync without a companion declaration", async () => {
+    const csv = "import/staging/00022882101.csv"
+    const latest = "import/staging/.latest.00022882101.csv"
+    expect(changedPaths({ [csv]: "rows", [latest]: "2025-01-01\n" }, {
+      [csv]: "rows",
+      [latest]: "2025-01-02\n",
+      ".secret": "ignored",
+    })).toEqual([latest])
+    expect(differences({ [csv]: "rows", [latest]: "2025-01-01\n" }, {
+      [csv]: "rows",
+      [latest]: "2025-01-02\n",
+    })).toEqual([latest])
+
+    const folder = folderWith({ [csv]: "rows", [latest]: "2025-01-01\n" })
+    const saved = await saveLocalFolder({ handle: folder.handle, base: { [csv]: "rows", [latest]: "2025-01-01\n" } }, {
+      [csv]: "rows",
+      [latest]: "2025-01-02\n",
+    })
+    expect(saved.ok).toBe(true)
+    expect(folder.writes).toEqual([latest])
+  })
+
   test("only changed files are selected and paths cannot escape the folder", () => {
     expect(changedPaths({ "main.journal": "a", "accounts.journal": "b" }, { "main.journal": "a", "accounts.journal": "c", "transactions.journal": "d" })).toEqual(["accounts.journal", "transactions.journal"])
     expect(differences({ "main.journal": "a", "deleted.journal": "b" }, { "main.journal": "changed", "new.journal": "c" })).toEqual(["main.journal", "deleted.journal", "new.journal"])

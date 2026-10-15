@@ -7,6 +7,7 @@ import { pageOf } from "~/core/address/address"
 import { SCHEMES, scheme, setScheme } from "~/core/lib/theme"
 import { TextField, TextFieldInput } from "~/core/components/ui/text-field"
 import { DEFAULT_DOCUMENT_SETTINGS, validDocumentSettings } from "~/core/journal/documents"
+import { validImportSettings } from "~/core/journal/book-config"
 import { bookSettings, saveBookSettings, type BookSettingsTrouble } from "~/core/journal/book-settings"
 import { BOOK_CONFIG_PATH } from "~/core/journal/book-config"
 import { journal } from "~/core/journal/store"
@@ -34,7 +35,7 @@ export const SECTIONS: readonly Section[] = [
 /** Everything set once and then left alone, one section at a time. */
 export default function Settings(): JSX.Element {
   const location = useLocation()
-  const [draft, setDraft] = createSignal({ documents: DEFAULT_DOCUMENT_SETTINGS, invert: false })
+  const [draft, setDraft] = createSignal({ documents: DEFAULT_DOCUMENT_SETTINGS, invert: false, imports: { csvFolder: "", rulesFolder: "" } })
   const [saving, setSaving] = createSignal(false)
   const [failure, setFailure] = createSignal<BookSettingsTrouble>()
   const section = createMemo(() => pageOf(location.hash))
@@ -55,8 +56,8 @@ export default function Settings(): JSX.Element {
     on(configAddress, () => {
       const settings = bookSettings()
       setDraft(settings.ok
-        ? { documents: settings.value.documents, invert: settings.value.invert }
-        : { documents: DEFAULT_DOCUMENT_SETTINGS, invert: false })
+        ? { documents: settings.value.documents, invert: settings.value.invert, imports: settings.value.imports }
+        : { documents: DEFAULT_DOCUMENT_SETTINGS, invert: false, imports: { csvFolder: "", rulesFolder: "" } })
       setFailure(undefined)
     }),
   )
@@ -148,6 +149,32 @@ export default function Settings(): JSX.Element {
           <p class="text-xs text-muted-foreground">
             {validDocumentSettings(draft().documents) ? t("settings.documentsHint") : t("settings.documentsInvalid")}
           </p>
+          <div class="flex flex-col gap-2 border-t border-border pt-3">
+            <h3 class="text-sm font-medium">{t("settings.importFolders")}</h3>
+            <label class="flex flex-col gap-1 text-sm">
+              {t("settings.csvFolder")}
+              <TextField>
+                <TextFieldInput
+                  value={draft().imports.csvFolder}
+                  placeholder=""
+                  onInput={(event) => setDraft({ ...draft(), imports: { ...draft().imports, csvFolder: event.currentTarget.value } })}
+                />
+              </TextField>
+            </label>
+            <label class="flex flex-col gap-1 text-sm">
+              {t("settings.rulesFolder")}
+              <TextField>
+                <TextFieldInput
+                  value={draft().imports.rulesFolder}
+                  placeholder=""
+                  onInput={(event) => setDraft({ ...draft(), imports: { ...draft().imports, rulesFolder: event.currentTarget.value } })}
+                />
+              </TextField>
+            </label>
+            <p class="text-xs" classList={{ "text-destructive": !validImportSettings(draft().imports), "text-muted-foreground": validImportSettings(draft().imports) }}>
+              {t(validImportSettings(draft().imports) ? "settings.importFoldersHint" : "settings.importFoldersInvalid")}
+            </p>
+          </div>
           <label class="flex items-start gap-2 text-sm">
             <input
               type="checkbox"
@@ -166,7 +193,7 @@ export default function Settings(): JSX.Element {
           <Button
             size="sm"
             class="self-start"
-            disabled={saving() || !validDocumentSettings(draft().documents) || configurationFailure() !== undefined}
+            disabled={saving() || !validDocumentSettings(draft().documents) || !validImportSettings(draft().imports) || configurationFailure() !== undefined}
             onClick={() => void save()}
           >
             {saving() ? t("settings.saving") : t("settings.saveBook")}

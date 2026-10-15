@@ -1,5 +1,6 @@
 import { readText } from "~/core/lib/text"
-import { isHiddenPath } from "./hidden"
+import { hledgerLatestPaths, isHiddenPath, isHledgerLatestPath } from "./hidden"
+import { companionsAcross } from "./companions"
 import { Err, Ok, type Result } from "~/core/lib/monad"
 
 /** The folder and the text last read from or written to it survive browser visits. */
@@ -22,11 +23,21 @@ export type LocalFailure =
   | { readonly at: "unsafe-path"; readonly path: string }
   | { readonly at: "filesystem"; readonly cause: unknown }
 
-export const changedPaths = (base: Readonly<Record<string, string>>, files: Readonly<Record<string, string>>): readonly string[] =>
-  Object.keys(files).filter((path) => !isHiddenPath(path) && files[path] !== base[path])
+const managedLatest = (files: Readonly<Record<string, string>>): readonly string[] => [
+  ...companionsAcross(files).filter(isHledgerLatestPath),
+  ...hledgerLatestPaths(Object.keys(files)),
+]
 
-export const differences = (before: Readonly<Record<string, string>>, after: Readonly<Record<string, string>>): readonly string[] =>
-  [...new Set([...Object.keys(before), ...Object.keys(after)])].filter((path) => !isHiddenPath(path) && before[path] !== after[path])
+export const changedPaths = (base: Readonly<Record<string, string>>, files: Readonly<Record<string, string>>): readonly string[] => {
+  const latest = managedLatest(files)
+  return Object.keys(files).filter((path) => !isHiddenPath(path, latest) && files[path] !== base[path])
+}
+
+export const differences = (before: Readonly<Record<string, string>>, after: Readonly<Record<string, string>>): readonly string[] => {
+  const together = { ...before, ...after }
+  const latest = managedLatest(together)
+  return [...new Set([...Object.keys(before), ...Object.keys(after)])].filter((path) => !isHiddenPath(path, latest) && before[path] !== after[path])
+}
 
 export const safeLocalPath = (path: string): boolean =>
   path.length > 0 && !path.includes("\\") && path.split("/").every((part) => part !== "" && part !== "." && part !== "..")
@@ -96,7 +107,9 @@ export const localFilesBelow = async (
   const directory = folder as LocalFolderDirectoryHandle
   const children: (LocalFolderFileHandle | LocalFolderDirectoryHandle)[] = []
   for await (const child of directory.values()) children.push(child)
-  const nested = await Promise.all(children.filter((child) => !isHiddenPath(child.name)).map(async (child) =>
+  const nested = await Promise.all(children.filter((child) =>
+    child.kind === "directory" ? !isHiddenPath(child.name) : !isHiddenPath(child.name) || isHledgerLatestPath(child.name),
+  ).map(async (child) =>
     child.kind === "file"
       ? [{ path: `${prefix}${child.name}`, file: await child.getFile() }]
       : localFilesBelow(child, `${prefix}${child.name}/`),
@@ -169,7 +182,8 @@ export const saveLocalFolder = async (
   companions: readonly { readonly path: string; readonly blob: Blob }[] = [],
 ): Promise<Result<LocalFolder, LocalFailure>> => {
   const paths = changedPaths(folder.base, files)
-  const visibleCompanions = companions.filter(({ path }) => !isHiddenPath(path))
+  const latest = managedLatest(files)
+  const visibleCompanions = companions.filter(({ path }) => !isHiddenPath(path, latest))
   const unsafe = [...Object.keys(folder.base), ...Object.keys(folder.versions ?? {}), ...Object.keys(files), ...companions.map(({ path }) => path)]
     .find((path) => !safeLocalPath(path))
   if (unsafe !== undefined) return Err({ at: "unsafe-path", path: unsafe })
@@ -201,11 +215,12 @@ const writeCheckedPaths = async (
   written: (folder: LocalFolder) => Promise<void>,
   companions: readonly { readonly path: string; readonly blob: Blob }[],
 ): Promise<Result<LocalFolder, LocalFailure>> => {
+  const latest = managedLatest(files)
   const checked = await checkPaths(folder, [...new Set([
     ...Object.keys(folder.base),
     ...Object.keys(folder.versions ?? {}),
     ...Object.keys(files),
-  ])].filter((path) => !isHiddenPath(path)))
+  ])].filter((path) => !isHiddenPath(path, latest)))
   if (!checked.ok) return checked
   const saved = await writeCompanions(folder, companions, written)
   return saved.ok ? writePaths(saved.value, files, paths, written) : saved

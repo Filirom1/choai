@@ -4,20 +4,39 @@ import { DEFAULT_DOCUMENT_SETTINGS, validDocumentSettings, type DocumentSettings
 
 export const BOOK_CONFIG_PATH = "choai-settings.jsonl"
 
+export interface ImportSettings {
+  readonly csvFolder: string
+  readonly rulesFolder: string
+}
+
 export interface BookConfig {
   readonly documents: DocumentSettings
   readonly reports: readonly SavedReport[]
   readonly invert: boolean
+  readonly imports: ImportSettings
 }
 
 export type BookConfigTrouble =
   | { readonly kind: "invalid-json"; readonly cause: unknown }
   | { readonly kind: "invalid-shape" }
 
+export const DEFAULT_IMPORT_SETTINGS: ImportSettings = { csvFolder: "", rulesFolder: "" }
+
+export const validImportSettings = (settings: ImportSettings): boolean =>
+  [settings.csvFolder, settings.rulesFolder].every((folder) =>
+    folder === "" || (
+      !folder.startsWith("/") &&
+      !folder.includes("\\") &&
+      !/[|,\n\r]/.test(folder) &&
+      folder.split("/").every((part) => part !== "" && part !== "." && part !== "..")
+    ),
+  )
+
 export const DEFAULT_BOOK_CONFIG: BookConfig = {
   documents: DEFAULT_DOCUMENT_SETTINGS,
   reports: [],
   invert: false,
+  imports: DEFAULT_IMPORT_SETTINGS,
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -46,7 +65,7 @@ export const bookConfigFromFiles = (
     return Err({ kind: "invalid-json", cause })
   }
 
-  if (!isRecord(value) || !hasOnlyWithOptional(value, ["documents", "reports", "invert"], ["invert"])) return Err({ kind: "invalid-shape" })
+  if (!isRecord(value) || !hasOnlyWithOptional(value, ["documents", "reports", "invert", "imports"], ["invert", "imports"])) return Err({ kind: "invalid-shape" })
   if (typeof value.invert !== "undefined" && typeof value.invert !== "boolean") return Err({ kind: "invalid-shape" })
   const documents = value.documents
   if (!isRecord(documents) || !hasOnly(documents, ["tag", "folder"])) return Err({ kind: "invalid-shape" })
@@ -54,8 +73,12 @@ export const bookConfigFromFiles = (
 
   const documentSettings = { tag: documents.tag, folder: documents.folder }
   const reports = decodedReports(value.reports)
-  return validDocumentSettings(documentSettings) && reports.ok
-    ? Ok({ documents: documentSettings, reports: reports.value, invert: value.invert ?? false })
+  const imports = value.imports === undefined ? DEFAULT_IMPORT_SETTINGS : value.imports
+  if (!isRecord(imports) || !hasOnly(imports, ["csvFolder", "rulesFolder"])) return Err({ kind: "invalid-shape" })
+  if (typeof imports.csvFolder !== "string" || typeof imports.rulesFolder !== "string") return Err({ kind: "invalid-shape" })
+  const importSettings = { csvFolder: imports.csvFolder, rulesFolder: imports.rulesFolder }
+  return validDocumentSettings(documentSettings) && validImportSettings(importSettings) && reports.ok
+    ? Ok({ documents: documentSettings, reports: reports.value, invert: value.invert ?? false, imports: importSettings })
     : Err({ kind: "invalid-shape" })
 }
 

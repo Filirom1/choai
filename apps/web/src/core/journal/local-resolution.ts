@@ -2,7 +2,7 @@ import { Err, Ok, getOrUndefined, type Result } from "~/core/lib/monad"
 import { readText } from "~/core/lib/text"
 import { captureFile, sameVersions, type CapturedVersion, type FileSnapshot, type ResolutionChoice } from "~/core/sync/conflict"
 import { companionsIn } from "~/core/journal/companions"
-import { isHiddenPath } from "~/core/journal/hidden"
+import { hledgerLatestPaths, isHiddenPath, isHledgerLatestPath } from "~/core/journal/hidden"
 import { includedBy } from "~/core/journal/layout"
 import { attachmentOf } from "~/core/journal/kept"
 import { journal, noteLocalBinaryWritten, noteLocalTextWritten, removeAttachment, removeFile, replaceAttachment, restoreFile, rewriteFile } from "~/core/journal/store"
@@ -113,16 +113,20 @@ export const inspectLocalResolution = async (): Promise<Result<readonly FileSnap
   const disk = await diskFilesFor(open)
   if (!disk.ok) return Err({ at: "local", failure: disk.error })
   const paths = accountingAndCompanionPaths(open)
+  const managedLatest = [
+    ...[...paths.companions].filter(isHledgerLatestPath),
+    ...hledgerLatestPaths([...Object.keys(open.source.files), ...disk.value.map(({ path }) => path)]),
+  ]
   const all = [...new Set([
     ...Object.keys(open.source.files),
     ...open.source.attachments.map(({ path }) => path),
     ...Object.keys(open.local.base),
     ...disk.value.map(({ path }) => path),
-  ])].filter((path) => !isHiddenPath(path))
+  ])].filter((path) => !isHiddenPath(path, managedLatest))
   const snapshots = await Promise.all(all.map(async (path) => {
-    const role = paths.companions.has(path)
+    const role = paths.companions.has(path) && !isHledgerLatestPath(path)
       ? "companion" as const
-      : paths.accounting.has(path) || textFile(path)
+      : paths.accounting.has(path) || textFile(path) || isHledgerLatestPath(path)
         ? "accounting" as const
         : binaryFile(path) ? "companion" as const : "unknown" as const
     return captureDiskFile(open, disk.value, path, role)

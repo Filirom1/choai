@@ -7,6 +7,7 @@ const config = {
   documents: { tag: "receipt", folder: "papers/receipts" },
   reports: [report],
   invert: true,
+  imports: { csvFolder: "imports/csv", rulesFolder: "imports/rules" },
 }
 
 describe("the configuration that travels with a book", () => {
@@ -19,10 +20,10 @@ describe("the configuration that travels with a book", () => {
     expect(bookConfigFromFiles(files)).toEqual({ ok: true, value: config })
   })
 
-  test("reads older settings files with report inversion off", () => {
+  test("reads older settings files with defaults for newer settings", () => {
     const legacy = { documents: config.documents, reports: config.reports }
     const files = { [BOOK_CONFIG_PATH]: JSON.stringify(legacy) }
-    expect(bookConfigFromFiles(files)).toEqual({ ok: true, value: { ...legacy, invert: false } })
+    expect(bookConfigFromFiles(files)).toEqual({ ok: true, value: { ...legacy, invert: false, imports: DEFAULT_BOOK_CONFIG.imports } })
   })
 
   test("refuses an invalid configuration instead of silently dropping fields", () => {

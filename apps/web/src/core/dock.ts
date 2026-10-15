@@ -21,13 +21,14 @@ import type { Layer } from "~/core/address/address"
  * being corrected: each is kept by whoever owns it, and putting the panel down costs
  * none of them.
  */
-export type InTheDock = "composing" | "editing" | "importing" | "connecting" | "reviewing" | "ledger"
+export type InTheDock = "composing" | "editing" | "importing" | "csv-importing" | "connecting" | "reviewing" | "ledger"
 
 /** What each is called in the address. */
 export const LAYER_OF: Readonly<Record<InTheDock, Layer>> = {
   composing: "compose",
   editing: "edit",
   importing: "import",
+  "csv-importing": "csv-import",
   connecting: "connect",
   reviewing: "review",
   ledger: "ledger",

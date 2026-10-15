@@ -85,6 +85,7 @@ const fromDiagnosis = (diagnosis: Diagnosis): string => {
 const detailOf = (trouble: Trouble): string | undefined => {
   switch (trouble.kind) {
     case "read-failed":
+      return trouble.path === undefined ? trouble.detail : `${trouble.path}: ${trouble.detail}`
     case "malformed-request":
     case "crashed":
     case "unreachable":

@@ -11,10 +11,10 @@ import { createTask } from "~/core/lib/pending"
 import { Err, None, Ok, Some, getOrUndefined, type Option, type Result } from "~/core/lib/monad"
 import { t } from "~/core/i18n"
 import { atTheJournal } from "~/core/hledger/turn"
-import { excludingCompanion } from "~/core/journal/companions"
+import { excludingCompanion, companionsIn, companionsAcross } from "~/core/journal/companions"
 import { documentSettingsFromFiles } from "~/core/journal/book-config"
 import { documentPathsInFiles, safeDocumentPath } from "~/core/journal/documents"
-import { isHiddenPath } from "~/core/journal/hidden"
+import { hledgerLatestPaths, isHiddenPath, isHledgerLatestPath } from "~/core/journal/hidden"
 import { demoJournal } from "./demo"
 import { MAIN, TRANSACTIONS, excluding, includedBy, including, laidOut } from "./layout"
 import { retitled, titleOf } from "./title"
@@ -822,7 +822,7 @@ const openChosenFiles = async (
   chosen: readonly (readonly [string, File])[],
   combineEntries: boolean = true,
 ): Promise<Result<OpenJournal, Trouble>> => {
-  const usable = chosen.filter(([path]) => !isHiddenPath(path))
+  const usable = chosen.filter(([path]) => !isHiddenPath(path) || isHledgerLatestPath(path))
   const contents = await Promise.all(
     usable.filter(([path]) => !isAttachment(path)).map(async ([path, file]) => [path, await readText(file)] as const),
   )
@@ -830,13 +830,19 @@ const openChosenFiles = async (
   const documentPaths = new Set(documentPathsInFiles(decoded, documentSettingsFromFiles(decoded).tag))
   const binary = usable.filter(([path]) => isAttachment(path) || documentPaths.has(path))
   const binaryPaths = new Set(binary.map(([path]) => path))
-  const files = Object.fromEntries(contents.filter(([path]) => !binaryPaths.has(path)))
+  const allFiles = Object.fromEntries(contents.filter(([path]) => !binaryPaths.has(path)))
   const names = contents.map(([name]) => name)
   const entries = names.filter(looksLikeJournalFile)
-  const included = new Set(Object.values(files).flatMap(includedBy))
+  const included = new Set(Object.values(allFiles).flatMap(includedBy))
   const standalone = entries.filter((path) => !included.has(path))
   const entry = (combineEntries ? entries[0] : standalone[0]) ?? entries[0]
   if (entry === undefined) return Err({ kind: "unsupported-file" })
+  const companions = companionsIn(allFiles[entry] ?? "")
+  const latest = new Set([
+    ...companions.filter(isHledgerLatestPath),
+    ...hledgerLatestPaths(Object.keys(allFiles)),
+  ])
+  const files = Object.fromEntries(Object.entries(allFiles).filter(([path]) => !isHledgerLatestPath(path) || latest.has(path)))
   const selected = combineEntries && entries.length > 1 ? entries : undefined
   const opened = await startBook({
     label: selected === undefined ? entry : `${entry} (+${entries.length - 1} more)`,
@@ -907,7 +913,9 @@ const filesBelow = async (
   const children: (FolderFile | FolderDirectory)[] = []
   for await (const child of folder.values()) children.push(child)
   const files = await Promise.all(
-    children.filter((child) => !isHiddenPath(child.name)).map(async (child) =>
+    children.filter((child) => child.kind === "directory"
+      ? !isHiddenPath(child.name)
+      : !isHiddenPath(child.name) || isHledgerLatestPath(child.name)).map(async (child) =>
       child.kind === "file"
         ? ([[prefix + child.name, await child.getFile()]] as const)
         : filesBelow(child, `${prefix + child.name}/`),
@@ -949,12 +957,16 @@ export const changedOnDisk = async (book: OpenJournal): Promise<Result<readonly 
     }
     if (await folder.queryPermission({ mode: "read" }) !== "granted") return Err({ at: "permission" })
     const chosen = await filesBelow(folder as FileSystemDirectoryHandle & FolderDirectory)
-    const contents = await Promise.all(chosen.filter(([path]) => !isHiddenPath(path) && !isAttachment(path))
+    const contents = await Promise.all(chosen.filter(([path]) => (!isHiddenPath(path) || isHledgerLatestPath(path)) && !isAttachment(path))
       .map(async ([path, file]) => [path, await readText(file)] as const))
     const decoded = Object.fromEntries(contents)
+    const managedLatest = [
+      ...companionsAcross(decoded).filter(isHledgerLatestPath),
+      ...hledgerLatestPaths(Object.keys(decoded)),
+    ]
     const documentPaths = new Set(documentPathsInFiles(decoded, documentSettingsFromFiles(decoded).tag))
     const attachmentPaths = new Set(chosen.filter(([path]) => isAttachment(path) || documentPaths.has(path)).map(([path]) => path))
-    const files = Object.fromEntries(contents.filter(([path]) => !attachmentPaths.has(path)))
+    const files = Object.fromEntries(contents.filter(([path]) => !attachmentPaths.has(path) && !isHiddenPath(path, managedLatest)))
     const diskByPath = new Map(chosen.map(([path, file]) => [path, file]))
     const knownAttachments = new Set([
       ...book.source.attachments.map(({ path }) => path).filter((path) => !isHiddenPath(path)),
@@ -1010,13 +1022,17 @@ export const reloadLocalFolder = (how: "clean" | "discard" = "clean"): Promise<R
   if (!permitted.ok) return permitted
   try {
     const chosen = await filesBelow(open.local.handle as FileSystemDirectoryHandle & FolderDirectory)
-    const contents = await Promise.all(chosen.filter(([path]) => !isHiddenPath(path) && !isAttachment(path))
+    const contents = await Promise.all(chosen.filter(([path]) => (!isHiddenPath(path) || isHledgerLatestPath(path)) && !isAttachment(path))
       .map(async ([path, file]) => [path, await readText(file)] as const))
     const decoded = Object.fromEntries(contents)
+    const managedLatest = [
+      ...companionsAcross(decoded).filter(isHledgerLatestPath),
+      ...hledgerLatestPaths(Object.keys(decoded)),
+    ]
     const documentPaths = new Set(documentPathsInFiles(decoded, documentSettingsFromFiles(decoded).tag))
     const attachments = chosen.filter(([path]) => isAttachment(path) || documentPaths.has(path))
     const attachmentPaths = new Set(attachments.map(([path]) => path))
-    const files = Object.fromEntries(contents.filter(([path]) => !attachmentPaths.has(path)))
+    const files = Object.fromEntries(contents.filter(([path]) => !attachmentPaths.has(path) && !isHiddenPath(path, managedLatest)))
     const source = { ...open.source, files, attachments: attachments.map(([path, file]) => ({ path, type: file.type || "application/octet-stream", size: file.size })) }
     return atTheJournal.through(async (): Promise<Result<void, LocalTrouble>> => {
       if (getOrUndefined(opened()) !== open) return Err({ at: "unsaved" })

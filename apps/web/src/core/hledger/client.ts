@@ -1,7 +1,7 @@
 import { Err, Ok, type Result } from "~/core/lib/monad"
 import { atTheJournal } from "./turn"
 import type { Ask, Outgoing } from "./worker"
-import type { Answer, JournalSummary, Request, Trouble } from "./wire"
+import type { Answer, HledgerImportAnswer, JournalSummary, Request, Trouble } from "./wire"
 
 /**
  * Talking to hledger: one worker, one queue of waiting calls, answers as values.
@@ -104,3 +104,14 @@ export const ask = <K extends Request["kind"]>(
 export const askInTurn = <K extends Request["kind"]>(
   request: Extract<Request, { kind: K }>,
 ): Promise<Reply<Answer[K]>> => send<Answer[K]>({ op: "query", request })
+
+/** Run hledger's native import reader against isolated files, without keeping its filesystem changes. */
+export const importWithHledger = (
+  files: Readonly<Record<string, string>>,
+  path: string,
+  rulesPath: string,
+): Promise<Reply<HledgerImportAnswer>> => atTheJournal.through(() => send<HledgerImportAnswer>({
+  op: "importCsv",
+  files,
+  request: { kind: "importCsv", path, rulesPath },
+}))

@@ -37,6 +37,8 @@ import { behindNow, refreshBehind } from "~/core/components/git/kept-in-view"
 import { searchFor, useQuery } from "~/core/journal/query"
 import { JevKeyPanel } from "~/core/components/jev-key-panel"
 import { AiImportPanel } from "~/core/components/ai-import-panel"
+import { CsvImportPanel } from "~/core/components/csv-import-panel"
+import { selectCsv } from "~/core/statement/import-selection"
 import { ProposalReview } from "~/core/components/proposal-review"
 import { createRenewal } from "~/core/lib/renewal"
 import { QueryBox } from "~/core/components/query-box"
@@ -46,7 +48,7 @@ import { ComposePanel } from "~/core/compose/ComposePanel"
 import { EntryEditor } from "~/core/compose/EntryEditor"
 import { editing, stopEditingEntry } from "~/core/compose/editing"
 import { LAYER_OF, dock, dockedAs, seatDock, type InTheDock } from "~/core/dock"
-import { JOURNAL, appPath, atTheList, atTheWork, dockedIn, readFragment, showsTheWork, withLayer } from "~/core/address/address"
+import { JOURNAL, SOURCE, appPath, atTheList, atTheWork, dockedIn, readFragment, showsTheWork, withLayer } from "~/core/address/address"
 import { useMoves } from "~/core/address/moves"
 import { narrow, overHalf, viewportWidth } from "~/core/lib/narrow"
 import { actionFor } from "~/core/lib/shortcuts"
@@ -64,6 +66,8 @@ const dockTitle = (showing: InTheDock | undefined): string => {
       return t("propose.title")
     case "importing":
       return t("receipts.title")
+    case "csv-importing":
+      return t("csvImport.title")
     case "connecting":
       return t("ai.connection")
     case "ledger":
@@ -373,6 +377,11 @@ export function Layout(props: ParentProps) {
     dock.show("importing")
   }
 
+  const importingCsv = (path?: string): void => {
+    selectCsv(path)
+    dock.show("csv-importing")
+  }
+
   /**
    * A query asked for from outside the tree lands here.
    *
@@ -573,6 +582,18 @@ export function Layout(props: ParentProps) {
                   <Show when={current().periodic === true && getOrUndefined(journal()) !== undefined}>
                     <FilterButton />
                   </Show>
+                  <Show when={getOrUndefined(journal()) !== undefined && (current().href === JOURNAL || current().href === SOURCE)}>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => importingCsv()}
+                      aria-label={t("csvImport.title")}
+                      title={t("csvImport.title")}
+                      class="size-6 text-muted-foreground"
+                    >
+                      <ImportIcon />
+                    </Button>
+                  </Show>
                   <Show when={current().writes && getOrUndefined(journal()) !== undefined}>
                     <Button
                       variant="outline"
@@ -625,6 +646,9 @@ export function Layout(props: ParentProps) {
             </Show>
             <Show when={dock.showing() === "importing"}>
               <AiImportPanel />
+            </Show>
+            <Show when={dock.showing() === "csv-importing"}>
+              <CsvImportPanel />
             </Show>
             <Show when={dock.showing() === "connecting"}>
               <JevKeyPanel />

@@ -1,12 +1,13 @@
 import { createRoot, createSignal, type Accessor } from "solid-js"
 
 import type { DefaultCommodity, JournalSummary, Trouble } from "~/core/hledger/wire"
-import { appendToJournal, draftToJournal, type Draft, type Tag } from "~/core/compose/draft"
+import { appendText, appendToJournal, draftToJournal, type Draft, type Tag } from "~/core/compose/draft"
 import { Err, Ok, getOrUndefined, type Result } from "~/core/lib/monad"
 import { replaceAt, type Span } from "./lines"
 import { TRANSACTIONS, including } from "./layout"
 import { journal, putFiles, tryOut, type OpenJournal } from "./store"
 import { withTags } from "./tagging"
+import { declaringCompanion } from "./companions"
 
 /**
  * Changes written but not yet kept.
@@ -85,6 +86,16 @@ export type Item = {
    * started — and it is the only kind of item that may say a path nobody knows.
    */
   | { readonly is: "append"; readonly path: string; readonly text: string }
+  | {
+      readonly is: "hledger-import"
+      readonly csvPath: string
+      readonly rulesPath: string
+      readonly checkpointPath: string
+      readonly checkpointText: string
+      readonly transactionCount: number
+      readonly catchupCount?: number
+      readonly text: string
+    }
 )
 
 export interface Proposal {
@@ -258,6 +269,7 @@ const marked = (item: Item): Item => {
     }
     case "remove":
     case "append":
+    case "hledger-import":
       return item
   }
 }
@@ -275,6 +287,8 @@ const writesTo = (item: Item): readonly string[] => {
       return [item.at.path]
     case "append":
       return [item.path]
+    case "hledger-import":
+      return [TRANSACTIONS, item.csvPath, item.rulesPath, item.checkpointPath]
   }
 }
 
@@ -296,7 +310,9 @@ export const touches = (
   files: Readonly<Record<string, string>>,
 ): readonly string[] => {
   const written = [...new Set(items.flatMap(writesTo))]
-  return startedIn(written, files).length === 0 ? written : [...new Set([...written, entry])]
+  const declaresCheckpoint = items.some((item) => item.is === "hledger-import")
+  const allWritten = declaresCheckpoint ? [...new Set([...written, entry])] : written
+  return startedIn(allWritten, files).length === 0 ? allWritten : [...new Set([...allWritten, entry])]
 }
 
 /**
@@ -356,10 +372,20 @@ export const filesOf = (
     )
 
   const afterAdditions = taking
-    .flatMap((item) => (item.is === "add" ? [item] : []))
+    .filter((item) => item.is === "add" || item.is === "hledger-import")
     .reduce<Record<string, string>>((files, one) => {
-      const path = one.path ?? TRANSACTIONS
-      return { ...files, [path]: appendToJournal(files[path] ?? "", one.draft, declared) }
+      if (one.is === "add") {
+        const path = one.path ?? TRANSACTIONS
+        return { ...files, [path]: appendToJournal(files[path] ?? "", one.draft, declared) }
+      }
+      const withTransactions = one.text === ""
+        ? files
+        : { ...files, [TRANSACTIONS]: appendText(files[TRANSACTIONS] ?? "", one.text) }
+      return {
+        ...withTransactions,
+        [one.checkpointPath]: one.checkpointText,
+        [entry]: declaringCompanion(withTransactions[entry] ?? "", one.checkpointPath),
+      }
     }, afterSpans)
 
   const afterAppends = taking
@@ -396,6 +422,8 @@ export const textOf = (item: Item, declared: DefaultCommodity | undefined): stri
       return item.was
     case "rewrite":
     case "append":
+      return item.text
+    case "hledger-import":
       return item.text
   }
 }

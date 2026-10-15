@@ -6,13 +6,16 @@ import { keptForGood } from "~/core/journal/kept"
 import { Button } from "~/core/components/ui/button"
 import { TextField, TextFieldInput } from "~/core/components/ui/text-field"
 import { handOver } from "~/core/journal/handover"
-import { DownloadIcon } from "~/core/lib/ui/icons"
+import { DownloadIcon, ImportIcon } from "~/core/lib/ui/icons"
+import { dock } from "~/core/dock"
+import { selectCsv } from "~/core/statement/import-selection"
 import { differsFrom } from "~/core/journal/unsaved-text"
 import { SOURCE, appPath, addressOfSourceFile } from "~/core/address/address"
 import { useMoves } from "~/core/address/moves"
 import { entryPath, fileShown } from "~/core/routes/source"
 import { getOrUndefined } from "~/core/lib/monad"
 import { t } from "~/core/i18n"
+import { isHledgerLatestPath } from "~/core/journal/hidden"
 
 /**
  * The explorer beside the journal's text: the files it is written in.
@@ -48,23 +51,37 @@ export function SourceExplorer(props: {
         <div class="py-1">
           <For each={inReadingOrder(open())}>
             {(path) => (
-              <button
-                type="button"
-                onClick={() => choose(path)}
-                title={path}
-                class="flex w-full items-center gap-1 px-3 py-1 text-left font-mono text-xs hover:bg-accent hover:text-accent-foreground"
-                classList={{
-                  "bg-accent text-accent-foreground":
-                    appPath(location.pathname) === SOURCE && fileShown(location.hash, open()) === path,
-                }}
-              >
-                <span class="min-w-0 truncate">{path}</span>
-                <Show when={differsFrom(path, open().source.files[path] ?? "")}>
-                  <span aria-label={t("source.unsaved")} title={t("source.unsaved")}>
-                    •
-                  </span>
+              <div class="flex items-center">
+                <button
+                  type="button"
+                  onClick={() => choose(path)}
+                  title={path}
+                  class="flex min-w-0 flex-1 items-center gap-1 px-3 py-1 text-left font-mono text-xs hover:bg-accent hover:text-accent-foreground"
+                  classList={{
+                    "bg-accent text-accent-foreground":
+                      appPath(location.pathname) === SOURCE && fileShown(location.hash, open()) === path,
+                  }}
+                >
+                  <span class="min-w-0 truncate">{path}</span>
+                  <Show when={differsFrom(path, open().source.files[path] ?? "")}>
+                    <span aria-label={t("source.unsaved")} title={t("source.unsaved")}>•</span>
+                  </Show>
+                </button>
+                <Show when={path.toLowerCase().endsWith(".csv")}>
+                  <button
+                    type="button"
+                    class="mr-2 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                    aria-label={t("csvImport.title")}
+                    title={t("csvImport.title")}
+                    onClick={() => {
+                      selectCsv(path)
+                      dock.show("csv-importing")
+                    }}
+                  >
+                    <ImportIcon class="h-3.5 w-3.5" />
+                  </button>
                 </Show>
-              </button>
+              </div>
             )}
           </For>
           <Book open={open()} />
@@ -81,7 +98,7 @@ export function SourceExplorer(props: {
  */
 const inReadingOrder = (open: OpenJournal): readonly string[] => {
   const entry = entryPath(open)
-  const files = Object.keys(open.source.files).filter((path) => path !== entry)
+  const files = Object.keys(open.source.files).filter((path) => path !== entry && !isHledgerLatestPath(path))
   return [entry, ...[...files, ...open.source.attachments.map(({ path }) => path)].sort()]
 }
 

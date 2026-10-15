@@ -154,8 +154,10 @@ describe("writing to the journal", () => {
       // The two doors everything without a screen goes through.
       "core/compose/commit.ts",
       "core/journal/proposals.ts",
-      // The one writer for the book's shared settings file.
+      // The one writer for the book's shared settings file and CSV companions.
       "core/journal/book-settings.ts",
+      // An explicitly chosen CSV and its rules become synced book companions.
+      "core/statement/hledger-import.ts",
       // Pulling from remote providers, which bring text from away.
       "core/github/sync.ts",
       "core/google-drive/sync.ts",

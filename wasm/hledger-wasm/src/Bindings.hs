@@ -6,6 +6,7 @@
 -- the root of this repository, and at <https://www.gnu.org/licenses/>.
 
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 -- | What binds hledger to JavaScript.
 --
@@ -25,6 +26,7 @@
 module Main (main) where
 
 import Control.Exception (SomeException, displayException, try)
+import Data.List (sortOn)
 import Data.Aeson ((.:), (.:?), (.=))
 import qualified Data.Aeson as A
 import qualified Data.Aeson.Text as A (encodeToLazyText)
@@ -36,6 +38,8 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Lazy as TL
 import GHC.Wasm.Prim (JSString (..), fromJSString, toJSString)
 import System.Directory (doesFileExist)
+import qualified Data.Text.IO as TIO
+import System.FilePath ((</>), splitFileName)
 import System.IO.Unsafe (unsafePerformIO)
 
 import Hledger
@@ -54,6 +58,7 @@ data Failure
   | MalformedRequest Text
   | UnknownReport Text
   | MissingTransaction
+  | ImportFailed FilePath Text
   | Crashed Text
 
 failureJson :: Failure -> A.Value
@@ -64,6 +69,7 @@ failureJson failure = case failure of
   MalformedRequest detail -> tagged "malformed-request" ["detail" .= detail]
   UnknownReport name -> tagged "unknown-report" ["report" .= name]
   MissingTransaction -> tagged "missing-transaction" []
+  ImportFailed path detail -> tagged "read-failed" ["path" .= path, "detail" .= detail]
   Crashed detail -> tagged "crashed" ["detail" .= detail]
   where
     tagged kind rest = A.object (("kind" .= (kind :: Text)) : rest)
@@ -78,6 +84,7 @@ journalRef = unsafePerformIO (newIORef Nothing)
 
 foreign export javascript "hledgerLoad" jsLoad :: JSString -> IO JSString
 foreign export javascript "hledgerQuery" jsQuery :: JSString -> IO JSString
+foreign export javascript "hledgerImport" jsImport :: JSString -> IO JSString
 
 -- | Parse the journal at this path on the WASI filesystem and keep it.
 --
@@ -150,6 +157,9 @@ sideName R = "right"
 jsQuery :: JSString -> IO JSString
 jsQuery raw = respond (runRequest (decodeRequest (fromJSString raw)))
 
+jsImport :: JSString -> IO JSString
+jsImport raw = respond (runRequest (decodeRequest (fromJSString raw)))
+
 decodeRequest :: String -> Either Failure Request
 decodeRequest raw =
   case A.eitherDecodeStrict' (TE.encodeUtf8 (T.pack raw)) >>= A.parseEither parseRequest of
@@ -158,11 +168,54 @@ decodeRequest raw =
 
 runRequest :: Either Failure Request -> IO (Either Failure A.Value)
 runRequest (Left failure) = pure (Left failure)
-runRequest (Right request) = do
-  loaded <- readIORef journalRef
-  case loaded of
-    Nothing -> pure (Left NoJournal)
-    Just journal -> report journal request
+runRequest (Right request) = case reqKind request of
+  "importCsv" -> importCsv request
+  _ -> do
+    loaded <- readIORef journalRef
+    case loaded of
+      Nothing -> pure (Left NoJournal)
+      Just journal -> report journal request
+
+-- | Run hledger's native new-transaction reader and write its checkpoint only
+-- into the caller's isolated WASI filesystem. The host decides whether to keep
+-- either result.
+importCsv :: Request -> IO (Either Failure A.Value)
+importCsv request
+  | null (reqPath request) = pure (Left (MalformedRequest "importCsv requires a path"))
+  | null (reqRulesPath request) = pure (Left (MalformedRequest "importCsv requires rulesPath"))
+  | otherwise = do
+      loaded <- readIORef journalRef
+      case loaded of
+        Nothing -> pure (Left NoJournal)
+        Just book -> do
+          let path = reqPath request
+              styles = journalCommodityStyles book
+              options = definputopts
+                { mrules_file_=Just (reqRulesPath request)
+                , new_=True
+                , new_save_=False
+                , strict_=False
+                , balancingopts_=defbalancingopts{commodity_styles_=Just styles}
+                }
+          parsed <- try (runExceptT (readJournalFilesAndLatestDates options [path]))
+          case parsed of
+            Left (cause :: SomeException) -> pure (Left (ImportFailed path (T.pack (displayException cause))))
+            Right (Left detail) -> pure (Left (ImportFailed path (T.pack detail)))
+            Right (Right (imported, latest)) -> do
+              saveLatestDatesForFiles latest
+              let (directory, name) = splitFileName path
+                  checkpointPath = directory </> (".latest." <> name)
+              checkpointExists <- doesFileExist checkpointPath
+              checkpoint <- if checkpointExists then TIO.readFile checkpointPath else pure ""
+              pure $ Right $ A.object
+                [ "path" .= path
+                , "checkpointPath" .= checkpointPath
+                , "checkpoint" .= checkpoint
+                , "transactions" .= map (\transaction -> A.object
+                    [ "transaction" .= A.toJSON transaction
+                    , "text" .= showTransaction transaction
+                    ]) (sortOn tdate (jtxns imported))
+                ]
 
 data Request = Request
   { reqKind :: Text
@@ -187,6 +240,10 @@ data Request = Request
   -- ^ For @register@: whether the running total starts from everything before
   -- the query's dates, as @register --historical@ does, rather than from zero.
   -- An account's balance is the first; what moved in a period is the second.
+  , reqPath :: FilePath
+  -- ^ For @importCsv@: the CSV path whose .latest checkpoint hledger tracks.
+  , reqRulesPath :: FilePath
+  -- ^ The explicitly selected hledger rules file.
   }
 
 parseRequest :: A.Value -> A.Parser Request
@@ -200,6 +257,8 @@ parseRequest = A.withObject "request" $ \o ->
     <*> (maybe "" id <$> o .:? "description")
     <*> (maybe "" id <$> o .:? "command")
     <*> (maybe False id <$> o .:? "historical")
+    <*> (maybe "" id <$> o .:? "path")
+    <*> (maybe "" id <$> o .:? "rulesPath")
 
 -- | Run the report a request names.
 --

@@ -9,6 +9,10 @@ import { getOrUndefined } from "~/core/lib/monad"
 import { Button } from "~/core/components/ui/button"
 import { TroubleNote } from "~/core/components/trouble-note"
 import { t } from "~/core/i18n"
+import { dock } from "~/core/dock"
+import { selectCsv } from "~/core/statement/import-selection"
+import { bookSettings } from "~/core/journal/book-settings"
+import { csvPathForRules } from "~/core/statement/hledger-import"
 
 /**
  * The journal as text, editable.
@@ -60,6 +64,16 @@ function Editor(props: { open: OpenJournal }): JSX.Element {
   /** What is in the box: the edit in progress, or the file as it stands. */
   const text = (): string => unsavedText(path()) ?? stored()
   const changed = (): boolean => differsFrom(path(), stored())
+  const csvForRules = (): string | undefined => {
+    if (!path().toLowerCase().endsWith(".rules")) return undefined
+    const settings = bookSettings()
+    return csvPathForRules(
+      path(),
+      props.open.source.files,
+      settings.ok ? settings.value.imports.csvFolder : "",
+      settings.ok ? settings.value.imports.rulesFolder : "",
+    )
+  }
 
   const save = async (): Promise<void> => {
     const saved = path()
@@ -73,9 +87,21 @@ function Editor(props: { open: OpenJournal }): JSX.Element {
   return (
     /* flex-1 asks the page column for the height it has; see app.tsx. */
     <div class="flex flex-1 flex-col gap-2">
-      <Show when={Object.keys(props.open.source.files).length + props.open.source.attachments.length > 1}>
-        <p class="font-mono text-xs text-muted-foreground">{path()}</p>
-      </Show>
+      <div class="flex items-center justify-between gap-2">
+        <Show when={Object.keys(props.open.source.files).length + props.open.source.attachments.length > 1}>
+          <p class="min-w-0 truncate font-mono text-xs text-muted-foreground">{path()}</p>
+        </Show>
+        <Show when={csvForRules()}>
+          {(csv) => (
+            <Button size="sm" variant="outline" onClick={() => {
+              selectCsv(csv())
+              dock.show("csv-importing")
+            }}>
+              {t("csvImport.test")}
+            </Button>
+          )}
+        </Show>
+      </div>
 
       {/* The box takes the height the screen has rather than a fixed number of
           lines: this is a file being edited, and a journal is longer than any

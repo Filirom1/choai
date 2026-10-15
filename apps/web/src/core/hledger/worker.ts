@@ -21,11 +21,13 @@ interface Exports {
   hs_init(argc: number, argv: number): void
   hledgerLoad(path: string): Promise<string>
   hledgerQuery(request: string): Promise<string>
+  hledgerImport(request: string): Promise<string>
 }
 
 export type Incoming =
   | { readonly id: number; readonly op: "open"; readonly files: Readonly<Record<string, string>>; readonly entry: string }
   | { readonly id: number; readonly op: "query"; readonly request: Request }
+  | { readonly id: number; readonly op: "importCsv"; readonly files: Readonly<Record<string, string>>; readonly request: Extract<Request, { readonly kind: "importCsv" }> }
 
 export type Outgoing =
   | { readonly id: number; readonly ok: true; readonly value: unknown }
@@ -42,6 +44,7 @@ const directory = new Map<string, File | Directory>()
 
 const started: { instance?: Exports } = {}
 const openBook: { inverted: boolean } = { inverted: false }
+const activeFiles: { current: Readonly<Record<string, string>> } = { current: {} }
 
 /** stdout is retained only during a native report, never sent to the console. */
 const output: { chunks?: readonly Uint8Array[] } = {}
@@ -160,9 +163,18 @@ const serve = async (message: Incoming): Promise<Reply> => {
     const hledger = await running()
     if (message.op === "open") {
       replaceFiles(message.files)
+      activeFiles.current = message.files
       const config = bookConfigFromFiles(message.files)
       openBook.inverted = config.ok && config.value.invert
       return openEnvelope(await hledger.hledgerLoad(message.entry))
+    }
+    if (message.op === "importCsv") {
+      replaceFiles(message.files)
+      try {
+        return openEnvelope(await hledger.hledgerImport(JSON.stringify(message.request)))
+      } finally {
+        replaceFiles(activeFiles.current)
+      }
     }
     const request = openBook.inverted ? requestWithInvertedCommand(message.request) : message.request
     if (request.kind === "command") {

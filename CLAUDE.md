@@ -445,8 +445,10 @@ tests are the statement — if one fails, the implementation is what moved.
   reaches one. Nothing under `core/api/` or `core/ai/` is on it, and that absence
   is the point: everything a script or a model touches writes only through
   `compose/commit.ts` and `journal/proposals.ts`, so a change without a diff is
-  not something that can be reached from there. Adding a name is a decision;
-  the list exists so it cannot be taken by accident.
+  not something that can be reached from there. The CSV importer writes only
+  explicitly chosen CSV and rules files as companions; generated entries still
+  go through `journal/proposals.ts`. Adding a name is a decision; the list exists
+  so it cannot be taken by accident.
 - **`isOffered` is one sentence read twice** — once to build the tool list a
   model is handed, once to refuse a name that was not on it. Two sentences saying
   the same thing would come apart, and the way they would come apart is a model

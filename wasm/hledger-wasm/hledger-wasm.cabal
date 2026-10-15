@@ -36,6 +36,7 @@ executable hledger-bindings
     , aeson
     , base
     , directory
+    , filepath
     , ghc-experimental
     , hledger-lib
     , hledger-reports

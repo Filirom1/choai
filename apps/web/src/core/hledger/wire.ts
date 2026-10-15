@@ -157,6 +157,13 @@ export interface DefaultCommodity {
   readonly spaced: boolean
 }
 
+export interface HledgerImportAnswer {
+  readonly path: string
+  readonly checkpointPath: string
+  readonly checkpoint: string
+  readonly transactions: readonly { readonly transaction: Transaction; readonly text: string }[]
+}
+
 export interface JournalSummary {
   readonly transactions: number
   readonly accounts: readonly string[]
@@ -198,6 +205,7 @@ export type Request =
   | { readonly kind: "accountTypes" }
   | { readonly kind: "similar"; readonly description: string; readonly limit: number }
   | { readonly kind: "renderTransaction"; readonly transaction: Transaction }
+  | { readonly kind: "importCsv"; readonly path: string; readonly rulesPath: string }
   | { readonly kind: "queryTerms"; readonly query: string }
   | { readonly kind: "completions" }
 
@@ -232,6 +240,7 @@ export interface Answer {
   /** Past transactions resembling a description, most alike and most recent first. */
   similar: readonly Transaction[]
   renderTransaction: string
+  importCsv: HledgerImportAnswer
   queryTerms: QueryTerms
   completions: Completions
 }
@@ -275,7 +284,7 @@ export type Trouble =
   | { readonly kind: "no-journal" }
   | { readonly kind: "unsupported-file" }
   | { readonly kind: "file-missing"; readonly path: string }
-  | { readonly kind: "read-failed"; readonly detail: string }
+  | { readonly kind: "read-failed"; readonly detail: string; readonly path?: string }
   | { readonly kind: "malformed-request"; readonly detail: string }
   | { readonly kind: "unknown-report"; readonly report: string }
   | { readonly kind: "missing-transaction" }

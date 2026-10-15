@@ -184,6 +184,17 @@ function One(props: { proposal: Proposal }): JSX.Element {
                   </span>
                 )}
               </Show>
+              <Show when={item.is === "hledger-import" ? item : undefined}>
+                {(change) => <span class="text-xs text-muted-foreground">{t(
+                  change().catchupCount === undefined ? "csvImport.review" : "csvImport.reviewCatchup",
+                  {
+                    csv: change().csvPath,
+                    rules: change().rulesPath,
+                    checkpoint: change().checkpointPath,
+                    count: change().catchupCount ?? change().transactionCount,
+                  },
+                )}</span>}
+              </Show>
               <Show when={item.is === "add" ? item.document : undefined}>
                 {(document) => (
                   <span class="text-xs text-muted-foreground">
@@ -191,10 +202,10 @@ function One(props: { proposal: Proposal }): JSX.Element {
                   </span>
                 )}
               </Show>
-              <Show when={item.confidence < SURE}>
+              <Show when={item.confidence < SURE || item.why !== undefined}>
                 <span class="text-xs text-muted-foreground">
-                  {t("propose.worthALook")}
-                  <Show when={item.why}>{(why) => <> — {why()}</>}</Show>
+                  <Show when={item.confidence < SURE}>{t("propose.worthALook")}</Show>
+                  <Show when={item.why}>{(why) => <>{item.confidence < SURE ? " — " : ""}{why()}</>}</Show>
                 </span>
               </Show>
             </span>

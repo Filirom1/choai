@@ -5,7 +5,8 @@ import { unsent as driveUnsent } from "~/core/google-drive/sync"
 import { agreements, token } from "~/core/github/kept"
 import { STEP, drawn, readHistory, readOlder, type History, type Read } from "~/core/github/history"
 import { behind, unsent, type Snag, type Unsent } from "~/core/github/sync"
-import { isHiddenPath } from "~/core/journal/hidden"
+import { isHiddenPath, isHledgerLatestPath } from "~/core/journal/hidden"
+import { companionsIn } from "~/core/journal/companions"
 import { journal } from "~/core/journal/store"
 import { isGitHubRemote, isGoogleDriveRemote } from "~/core/journal/remote"
 import { getOrUndefined, type Result } from "~/core/lib/monad"
@@ -30,9 +31,10 @@ const [waiting] = createRoot(() =>
       if (isGoogleDriveRemote(open.remote)) return driveUnsent(open)
       const local = open.local
       if (local === undefined) return []
+      const latest = [...new Set(Object.values(open.source.files).flatMap(companionsIn))].filter(isHledgerLatestPath)
       return Object.entries(open.source.files).flatMap(([path, after]) => {
         const before = local.base[path]
-        return isHiddenPath(path) || after === before
+        return isHiddenPath(path, latest) || after === before
           ? []
           : [{ path, before: before ?? "", after, isNew: before === undefined }]
       })

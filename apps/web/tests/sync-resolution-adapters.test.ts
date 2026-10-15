@@ -18,8 +18,10 @@ let trialFailure: { readonly kind: "read-failed"; readonly detail: string } | un
 
 let driveFile: DriveFile | undefined
 let driveFiles: readonly DriveFile[] | undefined
+let driveFolderListings: Readonly<Record<string, readonly DriveFile[]>> = {}
 let driveText = "destination\n"
 let driveTexts: Readonly<Record<string, string>> = {}
+let openedFiles: Readonly<Record<string, string>> = {}
 let driveBlobs: Readonly<Record<string, Blob>> = {}
 let driveLoadedAttachments: Readonly<Record<string, Blob>> = {}
 let driveMetadataReads = 0
@@ -33,6 +35,7 @@ let driveRecoveries: readonly string[] = []
 let driveAgreements: readonly unknown[] = []
 
 let githubText = "destination\n"
+let githubTexts: Readonly<Record<string, string>> = {}
 let githubSha = "sha-reviewed"
 let githubBlob = new Blob([Uint8Array.of(3, 4)], { type: "image/jpeg" })
 let githubDeletions: readonly { readonly path: string; readonly sha: string }[] = []
@@ -48,7 +51,7 @@ let failedDeletes = 0
 let deleteAttempts = 0
 
 const localHandle = { kind: "directory", name: "book" }
-const driveRemote = { provider: "google-drive", folderId: "folder-1", folderName: "Books", path: "main.journal" }
+const driveRemote = { provider: "google-drive", folderId: "folder-1", folderName: "Books", path: "main.journal" } as const
 const githubRemote: GitHubRemote = { provider: "github", owner: "owner", repo: "books", branch: "main", path: "books/main.journal" }
 
 const fingerprint = async (blob: Blob): Promise<string> => {
@@ -65,7 +68,10 @@ const localIdentity = async (file: File): Promise<string> => JSON.stringify([
 mock.module("../src/core/journal/store", () => ({
   journal: () => Some(open),
   loadAttachment: async (_bookId: string, path: string) => driveLoadedAttachments[path] ?? localBlobs[path] ?? (path === "receipt.jpg" ? githubLocalBlob : undefined),
-  openBringingMissing: async () => Ok(open),
+  openBringingMissing: async (source: { readonly files: Readonly<Record<string, string>> }) => {
+    openedFiles = source.files
+    return Ok(open)
+  },
   registerAttachmentLoader: () => undefined,
   noteLocalBinaryWritten: async () => undefined,
   noteLocalTextWritten: async () => undefined,
@@ -144,7 +150,7 @@ mock.module("../src/core/google-drive/api", () => ({
     const value = driveMetadataSequence[index] ?? driveFile
     return value === undefined ? Err({ kind: "refused", status: 404 }) : Ok(value)
   },
-  listFilesInFolder: async () => Ok(driveFiles ?? (driveFile === undefined ? [] : [driveFile])),
+  listFilesInFolder: async (_token: string, folderId: string) => Ok(driveFolderListings[folderId] ?? driveFiles ?? (driveFile === undefined ? [] : [driveFile])),
   pinRevision: async () => drivePinResult,
   trashFile: async (_token: string, id: string) => {
     driveTrashes = [...driveTrashes, id]
@@ -172,7 +178,7 @@ mock.module("../src/core/github/api", () => ({
     return Ok(undefined)
   },
   fetchBinary: async () => Ok({ blob: githubBlob, sha: githubSha }),
-  fetchFile: async () => Ok({ text: githubText, sha: githubSha }),
+  fetchFile: async (_token: string, where: { readonly path: string }) => Ok({ text: githubTexts[where.path] ?? githubText, sha: githubSha }),
   putBinary: async (_token: string, where: { path: string }, blob: Blob) => {
     if (where.path === githubBinaryFailPath) return Err({ kind: "refused", status: 503 })
     githubUploads = [...githubUploads, { path: where.path, blob }]
@@ -307,7 +313,9 @@ beforeEach(() => {
   trialFailure = undefined
   driveFile = driveFixture()
   driveFiles = undefined
+  driveFolderListings = {}
   driveText = "destination\n"
+  openedFiles = {}
   driveTexts = {}
   driveBlobs = {}
   driveLoadedAttachments = {}
@@ -321,6 +329,7 @@ beforeEach(() => {
   driveRecoveries = []
   driveAgreements = []
   githubText = "destination\n"
+  githubTexts = {}
   githubSha = "sha-reviewed"
   githubBlob = new Blob([Uint8Array.of(3, 4)], { type: "image/jpeg" })
   githubDeletions = []
@@ -333,6 +342,52 @@ beforeEach(() => {
   failedPuts = 0
   failedDeletes = 0
   deleteAttempts = 0
+})
+
+test("initializing GitHub and Drive books keeps paired hledger .latest checkpoints", async () => {
+  const csv = "import/staging/00022882101.csv"
+  const latest = "import/staging/.latest.00022882101.csv"
+  const csvText = "date,description,amount\n2025-01-01,Coffee,-2\n"
+  const latestText = "2025-01-01\n"
+
+  driveFolderListings = {
+    "folder-1": [
+      driveFixture({ id: "drive-root", name: "main.journal" }),
+      driveFixture({ id: "drive-import", name: "import", mimeType: "application/vnd.google-apps.folder" }),
+    ],
+    "drive-import": [
+      driveFixture({ id: "drive-staging", name: "staging", mimeType: "application/vnd.google-apps.folder" }),
+    ],
+    "drive-staging": [
+      driveFixture({ id: "drive-csv", name: "00022882101.csv", mimeType: "text/csv" }),
+      driveFixture({ id: "drive-latest", name: ".latest.00022882101.csv", mimeType: "text/csv" }),
+    ],
+  }
+  driveTexts = {
+    "drive-root": "include transactions.journal\n",
+    "drive-csv": csvText,
+    "drive-latest": latestText,
+  }
+  expect(await driveResolution.pullAsNewBook(driveRemote)).toMatchObject({ ok: true })
+  expect(openedFiles).toMatchObject({ [csv]: csvText, [latest]: latestText })
+  expect(await driveResolution.unsent({ ...open, source: { ...open.source, files: openedFiles } }))
+    .toContainEqual({ path: latest, before: "", after: latestText, isNew: true })
+
+  openedFiles = {}
+  githubTree = [
+    "books/main.journal",
+    `books/${csv}`,
+    `books/${latest}`,
+  ]
+  githubTexts = {
+    "books/main.journal": "include transactions.journal\n",
+    [`books/${csv}`]: csvText,
+    [`books/${latest}`]: latestText,
+  }
+  expect(await githubResolution.pullAsNewBook(githubRemote)).toMatchObject({ ok: true })
+  expect(openedFiles).toMatchObject({ [csv]: csvText, [latest]: latestText })
+  expect(await githubResolution.unsent({ ...open, source: { ...open.source, files: openedFiles } }))
+    .toContainEqual({ path: latest, before: "", after: latestText, isNew: true })
 })
 
 test("local resolution refuses lost permission and a destination changed after review", async () => {

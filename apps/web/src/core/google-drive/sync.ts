@@ -8,7 +8,7 @@ import type { Trouble } from "~/core/hledger/wire"
 import { isGoogleDriveRemote } from "~/core/journal/remote"
 import { accessToken, sessionToken } from "./auth"
 import { companionsIn } from "~/core/journal/companions"
-import { isHiddenPath as hiddenPath } from "~/core/journal/hidden"
+import { hledgerLatestPaths, isHiddenPath as hiddenPath, isHledgerLatestPath } from "~/core/journal/hidden"
 import { includedBy } from "~/core/journal/layout"
 import { captureFile, sameVersions, type CapturedVersion, type FileSnapshot, type ResolutionChoice } from "~/core/sync/conflict"
 import {
@@ -71,7 +71,7 @@ const treeOf = async (
   const nextVisited = new Set([...visited, folderId])
   const branches = await Promise.all(listed.value.map(async (file) => {
     const path = relativePath(prefix, file.name)
-    if (!safePath(path) || hiddenPath(path)) return Ok([] as readonly LocatedFile[])
+    if (!safePath(path) || (hiddenPath(path) && !isHledgerLatestPath(path))) return Ok([] as readonly LocatedFile[])
     return file.mimeType === FOLDER_MIME
       ? treeOf(token, file.id, path, nextVisited)
       : Ok([{ path, file }])
@@ -164,11 +164,19 @@ const take = async (
   const fetched = texts.flatMap((text) => text.ok ? [text.value] : [])
   const legacyConfigPath = `${BOOK_CONFIG_PATH.slice(0, -1)}/${BOOK_CONFIG_PATH}`
   const hasConfig = fetched.some(({ path }) => path === BOOK_CONFIG_PATH)
-  const bookFiles = fetched.flatMap((file) => file.path !== legacyConfigPath
-    ? [file]
-    : hasConfig
-      ? []
-      : [{ ...file, path: BOOK_CONFIG_PATH }])
+  const declared = new Set(companionsIn(fetched.find(({ path }) => path === remote.path)?.text ?? ""))
+  const managedLatest = new Set([
+    ...[...declared].filter(isHledgerLatestPath),
+    ...hledgerLatestPaths(listed.value.map(({ path }) => path)),
+  ])
+  const bookFiles = fetched.flatMap((file) => {
+    if (isHledgerLatestPath(file.path) && !managedLatest.has(file.path)) return []
+    return file.path !== legacyConfigPath
+      ? [file]
+      : hasConfig
+        ? []
+        : [{ ...file, path: BOOK_CONFIG_PATH }]
+  })
   const decoded = Object.fromEntries(bookFiles.map(({ path, text }) => [path, text]))
   const linked = new Set(documentPathsInFiles(decoded, documentSettingsFromFiles(decoded).tag))
   const fileTexts = Object.fromEntries(Object.entries(decoded).filter(([path]) => !linked.has(path)))
@@ -221,7 +229,11 @@ const changedFiles = async (
   book: string,
   files: Readonly<Record<string, string>>,
 ): Promise<readonly Unsent[]> => {
-  const changes = await Promise.all(Object.entries(files).filter(([path]) => !hiddenPath(path)).map(async ([path, after]) => {
+  const latest = [...new Set([
+    ...Object.values(files).flatMap(companionsIn),
+    ...hledgerLatestPaths(Object.keys(files)),
+  ])].filter(isHledgerLatestPath)
+  const changes = await Promise.all(Object.entries(files).filter(([path]) => !hiddenPath(path, latest)).map(async ([path, after]) => {
     const agreement = await agreedOn(book, path)
     return agreement?.baseText === after ? undefined : {
       path,
@@ -282,8 +294,12 @@ const localChanges = async (
     ...attachmentPaths,
     ...agreements.filter(({ baseBinary }) => baseBinary !== undefined).map(({ path }) => path),
   ])
+  const latest = [...new Set([
+    ...Object.values(open.source.files).flatMap(companionsIn),
+    ...hledgerLatestPaths(Object.keys(open.source.files)),
+  ])].filter(isHledgerLatestPath)
   const textPaths = [...new Set([...Object.keys(open.source.files), ...agreements.map(({ path }) => path)])]
-    .filter((path) => !hiddenPath(path) && !binaryPaths.has(path))
+    .filter((path) => !hiddenPath(path, latest) && !binaryPaths.has(path))
   const changedText = textPaths.filter((path) => open.source.files[path] !== baseByPath.get(path)?.baseText)
   const tree = await filesIn(token, remote)
   if (!tree.ok) return tree
@@ -314,8 +330,12 @@ export const behind = async (): Promise<Result<readonly string[], Snag>> => {
   if (token === undefined) return Err({ at: "not-connected" })
   const tree = await filesIn(token, open.remote)
   if (!tree.ok) return tree
+  const managedLatest = [...new Set([
+    ...Object.values(open.source.files).flatMap(companionsIn),
+    ...hledgerLatestPaths(Object.keys(open.source.files)),
+  ])].filter(isHledgerLatestPath)
   const localPaths = new Set([
-    ...Object.keys(open.source.files).filter((path) => !hiddenPath(path)),
+    ...Object.keys(open.source.files).filter((path) => !hiddenPath(path, managedLatest)),
     ...open.source.attachments.map(({ path }) => path).filter((path) => !hiddenPath(path)),
   ])
   const paths = [...new Set([...localPaths, ...tree.value.map(({ path }) => path)])]
@@ -600,23 +620,30 @@ export const inspectResolution = async (): Promise<Result<readonly FileSnapshot[
   const declared = new Set(Object.values(open.source.files).flatMap(companionsIn))
   const included = new Set(Object.values(open.source.files).flatMap(includedBy))
   const localAttachments = new Set(open.source.attachments.map(({ path }) => path))
+  const managedLatest = [...new Set([
+    ...[...declared].filter(isHledgerLatestPath),
+    ...hledgerLatestPaths([
+      ...Object.keys(open.source.files),
+      ...tree.value.map(({ path }) => path),
+    ]),
+  ])]
   const allPaths = [...new Set([
     ...Object.keys(open.source.files),
     ...localAttachments,
     ...agreements.map(({ path }) => path),
     ...tree.value.map(({ path }) => path),
-  ])].filter((path) => !hiddenPath(path))
+  ])].filter((path) => !hiddenPath(path, managedLatest))
   const captures = await Promise.all(allPaths.map(async (path) => {
     const agreement = agreementByPath.get(path)
     const located = tree.value.find((item) => item.path === path)
     const fileIsText = located === undefined ? isTextPath(path) : isTextFile(located.file)
     const knownBinary = !fileIsText && (localAttachments.has(path) || declared.has(path) || agreement?.baseBinary !== undefined ||
       /\.(pdf|png|jpe?g|gif|webp|bmp)$/i.test(path))
-    const knownCompanion = localAttachments.has(path) || declared.has(path) || knownBinary
+    const knownCompanion = localAttachments.has(path) || declared.has(path) || managedLatest.includes(path) || knownBinary
     const knownAccounting = open.source.files[path] !== undefined || included.has(path) || /\.(journal|hledger|ledger)$/i.test(path)
     const role = knownCompanion ? "companion" as const : knownAccounting ? "accounting" as const : "unknown" as const
     const file = located?.file
-    const unchangedBinary = role === "companion"
+    const unchangedBinary = role === "companion" && !isHledgerLatestPath(path)
       ? await cachedBinaryIsUnchanged(open.bookId, path, agreement, file)
       : Ok(false)
     if (!unchangedBinary.ok) return Err({ at: "drive", failure: unchangedBinary.error })
