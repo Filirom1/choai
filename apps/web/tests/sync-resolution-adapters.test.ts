@@ -413,7 +413,7 @@ test("Drive comparison loads lazy companions, keeps text companions textual, and
   ]
   driveFiles = files
   driveTexts = {
-    "drive-file-1": "; choai-file: choai-settings.jsonl\n",
+    "drive-file-1": "; APEP\n",
     settings: "{}\n",
   }
   driveBlobs = { receipt }
@@ -425,7 +425,7 @@ test("Drive comparison loads lazy companions, keeps text companions textual, and
     source: {
       ...open.source,
       files: {
-        "main.journal": "; choai-file: choai-settings.jsonl\n",
+        "main.journal": "; APEP\n",
         "choai-settings.jsonl": "{}\n",
       },
       attachments: [{ path: "receipt.pdf", type: "application/pdf", size: receipt.size }],

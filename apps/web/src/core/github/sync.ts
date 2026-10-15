@@ -177,7 +177,9 @@ const take = async (
   })
   const broughtFiles = Object.fromEntries([...brought].map(([path, file]) => [path, file.text]))
   const linked = new Set(documentPathsInFiles(broughtFiles, documentSettingsFromFiles(broughtFiles).tag))
-  const attachmentPaths = paths.filter((path) => !unknown(path) && (binary(path) || linked.has(relative(path))))
+  const attachmentPaths = paths.filter((path) =>
+    (!unknown(path) && binary(path)) || linked.has(relative(path)),
+  )
   attachmentPaths.forEach((path) => brought.delete(relative(path)))
   const attachments: readonly Attachment[] = attachmentPaths.map((path) => ({ path: relative(path), type: mimeOf(path), size: 0 }))
 

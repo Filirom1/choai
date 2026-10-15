@@ -4,7 +4,6 @@ import { Err, Ok, getOrUndefined, type Result } from "~/core/lib/monad"
 import { createGate } from "~/core/lib/gate"
 import { replaceReport, type DefinitionTrouble, type SavedReport } from "~/core/reports/custom"
 import type { Trouble } from "~/core/hledger/wire"
-import { declaringCompanion } from "./companions"
 import {
   BOOK_CONFIG_PATH,
   bookConfigFromFiles,
@@ -60,15 +59,7 @@ const keep = async (
     const next = update(config.value)
     if (!validDocumentSettings(next.documents)) return Err({ kind: "invalid-documents" })
 
-    const selectedEntry = current.source.entry.replace(/^\/+/, "")
-    const remoteEntry = current.remote?.provider === "github"
-      ? current.remote.path.slice(current.remote.path.lastIndexOf("/") + 1)
-      : current.remote?.path
-    const entry = remoteEntry !== undefined && current.source.files[remoteEntry] !== undefined
-      ? remoteEntry
-      : selectedEntry
     const written = await putFiles({
-      [entry]: declaringCompanion(current.source.files[entry] ?? "", BOOK_CONFIG_PATH),
       [BOOK_CONFIG_PATH]: textOfBookConfig(next),
     })
     return written.ok ? Ok(next) : Err({ kind: "journal", trouble: written.error })

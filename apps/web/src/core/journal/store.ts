@@ -11,7 +11,7 @@ import { createTask } from "~/core/lib/pending"
 import { Err, None, Ok, Some, getOrUndefined, type Option, type Result } from "~/core/lib/monad"
 import { t } from "~/core/i18n"
 import { atTheJournal } from "~/core/hledger/turn"
-import { declaringCompanion, excludingCompanion } from "~/core/journal/companions"
+import { excludingCompanion } from "~/core/journal/companions"
 import { documentSettingsFromFiles } from "~/core/journal/book-config"
 import { documentPathsInFiles, safeDocumentPath } from "~/core/journal/documents"
 import { isHiddenPath } from "~/core/journal/hidden"
@@ -591,7 +591,7 @@ export const restoreFile = async (path: string, text: string): Promise<Result<Op
   return openIfItReads({ ...current.source, files })
 }
 
-/** Replace one companion's bytes while keeping its declaration with the book. */
+/** Replace an attachment's bytes without changing the journal text. */
 export const replaceAttachment = async (path: string, blob: Blob): Promise<Result<OpenJournal, Trouble>> => {
   const current = getOrUndefined(opened())
   if (current === undefined) return Err({ kind: "no-journal" })
@@ -605,12 +605,7 @@ export const replaceAttachment = async (path: string, blob: Blob): Promise<Resul
   const attachments = prior === undefined
     ? [...current.source.attachments, attachment]
     : current.source.attachments.map((one) => one.path === path ? attachment : one)
-  const entry = entryName(current.source)
-  const files = {
-    ...current.source.files,
-    [entry]: declaringCompanion(current.source.files[entry] ?? "", path),
-  }
-  return openIfItReads({ ...current.source, files, attachments }, [{ path, blob }])
+  return openIfItReads({ ...current.source, attachments }, [{ path, blob }])
 }
 
 /** Remove a companion and its declaration from the local book. */
@@ -660,11 +655,6 @@ const keepDocument = async (
   path: string,
 ): Promise<Result<OpenJournal, Trouble>> => {
   if (!safeDocumentPath(path)) return Err({ kind: "unsupported-file" })
-  const entry = entryName(source)
-  const files = {
-    ...source.files,
-    [entry]: declaringCompanion(source.files[entry] ?? "", path),
-  }
   const attachment = { path, type: file.type || "application/octet-stream", size: file.size }
   const attachments = source.attachments.some((one) => one.path === path)
     ? source.attachments
@@ -674,7 +664,7 @@ const keepDocument = async (
   } catch (cause) {
     return Err({ kind: "unreachable", detail: String(cause) })
   }
-  const written = await openIfItReads({ ...source, files, attachments })
+  const written = await openIfItReads({ ...source, attachments })
   if (!written.ok) await forgetAttachment(current.bookId, path).catch(() => undefined)
   return written
 }
