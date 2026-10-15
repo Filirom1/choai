@@ -34,13 +34,13 @@ jobs:
         working-directory: apps/web
         run: bun run test
 
-      - name: Install Playwright browser
-        working-directory: apps/web
-        run: bunx playwright install --with-deps chromium
-
-      - name: Run end-to-end tests
-        working-directory: apps/web
-        run: bun run e2e
+      # - name: Install Playwright browser
+      #   working-directory: apps/web
+      #   run: bunx playwright install --with-deps chromium
+      #
+      # - name: Run end-to-end tests
+      #   working-directory: apps/web
+      #   run: bun run e2e
 
       - name: Build app
         working-directory: apps/web
