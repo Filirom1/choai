@@ -234,10 +234,7 @@ test("an unchanged binary companion does not count as a local text change", asyn
   await page.goto("/journal")
   await page.evaluate(() => window.dispatchEvent(new Event("focus")))
   await expect.poll(async () => (await page.evaluate(() => window.choai?.journal.summary({})))?.ok).toBe(true)
-  const compare = page.getByRole("button", { name: "Compare and sync" })
-  await expect(compare).toBeVisible()
-  await compare.click({ force: true })
-  await expect.poll(async () => page.evaluate(() => new Promise<boolean>((resolve, reject) => {
+  await expect.poll(async () => page.evaluate((companion) => new Promise<boolean>((resolve, reject) => {
     const opening = indexedDB.open("choai")
     opening.onerror = () => reject(opening.error)
     opening.onsuccess = () => {
@@ -248,7 +245,7 @@ test("an unchanged binary companion does not count as a local text change", asyn
         resolve(rows.some(({ agreed }) => agreed?.path === companion && agreed.baseBinary !== undefined))
       }
     }
-  }))).toBe(true)
+  }), companion)).toBe(true)
 
   await page.goto("/git#connection")
   await page.getByRole("button", { name: "Take from GitHub", exact: true }).click()

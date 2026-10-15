@@ -638,9 +638,24 @@ describe("document tags and settings", () => {
     expect(documentPathOn([["evidence", "../../outside.pdf"]], "evidence")).toBeUndefined()
   })
 
-  test("gives each receipt image a distinct supporting-document path", () => {
+  test("names receipt images after their date and issuer, distinguishing duplicates", () => {
     const file = new File(["photo"], "camera.jpg", { type: "image/jpeg" })
-    expect(pathForReceipt(file, "receipt-id", DEFAULT_DOCUMENT_SETTINGS)).toBe("justificatifs/receipt-id-camera.jpg")
+    expect(pathForReceipt(file, DEFAULT_DOCUMENT_SETTINGS, "2026-10-08", "Épicerie Exemple"))
+      .toBe("justificatifs/2026-10-08-épicerie-exemple.jpg")
+    expect(pathForReceipt(
+      file,
+      DEFAULT_DOCUMENT_SETTINGS,
+      "2026-10-08",
+      "Épicerie Exemple",
+      ["justificatifs/2026-10-08-épicerie-exemple.jpg"],
+    )).toBe("justificatifs/2026-10-08-épicerie-exemple-2.jpg")
+    expect(pathForReceipt(
+      file,
+      DEFAULT_DOCUMENT_SETTINGS,
+      "2026-10-08",
+      "Épicerie Exemple",
+      ["justificatifs/2026-10-08-épicerie-exemple.jpg", "justificatifs/2026-10-08-épicerie-exemple-2.jpg"],
+    )).toBe("justificatifs/2026-10-08-épicerie-exemple-3.jpg")
   })
 
   test("finds linked document files in journal text, including arbitrary extensions", () => {

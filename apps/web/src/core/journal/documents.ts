@@ -69,9 +69,27 @@ export const pathForDocument = (file: File, settings: DocumentSettings): string 
   return `${settings.folder}/${crypto.randomUUID()}.${extension ?? fallback}`
 }
 
-/** Receipt cameras often reuse filenames, so each kept photograph gets its own path. */
-export const pathForReceipt = (file: File, id: string, settings: DocumentSettings): string => {
-  const path = pathForDocument(file, settings)
-  const slash = path.lastIndexOf("/")
-  return `${path.slice(0, slash + 1)}${id}-${path.slice(slash + 1)}`
+const receiptSlug = (value: string): string =>
+  value
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}._-]+/gu, "-")
+    .replace(/-+/g, "-")
+    .replace(/^[-.]+|[-.]+$/g, "")
+
+/** A readable filename for the receipt, unique when the same name is already used. */
+export const pathForReceipt = (
+  file: File,
+  settings: DocumentSettings,
+  date?: string,
+  issuer?: string,
+  used: readonly string[] = [],
+): string => {
+  const extension = /\.([a-zA-Z0-9]{1,12})$/.exec(file.name)?.[1]?.toLowerCase() ?? "jpg"
+  const day = date !== undefined && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : "undated"
+  const stem = `${day}-${receiptSlug(issuer ?? "") || "receipt"}`
+  const candidate = (number: number): string =>
+    `${settings.folder}/${stem}${number === 1 ? "" : `-${number}`}.${extension}`
+  const next = (number: number): string => used.includes(candidate(number)) ? next(number + 1) : candidate(number)
+  return next(1)
 }

@@ -235,7 +235,33 @@ const itemOf = (card: Card): { readonly item?: Item; readonly refused?: Unpropos
   if (status.is !== "read") return {}
   const settings = documents()
   if (!validDocumentSettings(settings)) return { refused: { is: "document-settings-invalid" } }
-  const path = pathForReceipt(card.picture, card.id, settings)
+  const book = getOrUndefined(journal())
+  const usedPaths = [
+    ...(book === undefined ? [] : [
+      ...Object.keys(book.source.files),
+      ...book.source.attachments.map(({ path }) => path),
+    ]),
+  ]
+  const priorReceipts = receipts().slice(0, receipts().findIndex(({ id }) => id === card.id))
+  const priorPaths = priorReceipts.reduce<readonly string[]>((paths, prior) => {
+    const priorStatus = prior.status()
+    return priorStatus.is === "read"
+      ? [...paths, pathForReceipt(
+          prior.picture,
+          settings,
+          priorStatus.read.receipt.date,
+          priorStatus.read.receipt.issuer,
+          [...usedPaths, ...paths],
+        )]
+      : paths
+  }, [])
+  const path = pathForReceipt(
+    card.picture,
+    settings,
+    status.read.receipt.date,
+    status.read.receipt.issuer,
+    [...usedPaths, ...priorPaths],
+  )
   const made = receiptItem(
     status.read.receipt,
     {
