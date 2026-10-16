@@ -814,7 +814,7 @@ function BackupNotice(props: { readonly saveRequest: Accessor<number> }): JSX.El
         if (inspected.value.length > 0) {
           setConflicts(inspected.value)
         } else {
-          const pending = await githubUnsent(current)
+          const pending = await githubUnsent(open() ?? current)
           const result = pending.length > 0 ? await githubPush() : await githubPull()
           if (result.ok) setSyncMessage(t("remotes.syncDone"))
           else if (result.error.at === "diverged" && result.error.snapshot !== undefined) setConflicts([result.error.snapshot])
@@ -832,7 +832,7 @@ function BackupNotice(props: { readonly saveRequest: Accessor<number> }): JSX.El
         if (!inspected.ok) setSyncFailure({ at: "drive", snag: inspected.error })
         else if (inspected.value.length > 0) setConflicts(inspected.value)
         else {
-          const pending = await driveUnsent(current)
+          const pending = await driveUnsent(open() ?? current)
           const result = pending.length > 0 ? await drivePush() : await drivePull()
           if (result.ok) setSyncMessage(t("remotes.syncDone"))
           else if (result.error.at === "conflict" || result.error.at === "local-changes") {
@@ -850,21 +850,25 @@ function BackupNotice(props: { readonly saveRequest: Accessor<number> }): JSX.El
         if (!inspected.ok) setSyncFailure({ at: "local", trouble: localFailureAsTrouble(inspected.error) })
         else if (inspected.value.length > 0) setConflicts(inspected.value)
         else {
-          const changed = await changedOnDisk(current)
+          const latest = open() ?? current
+          const changed = await changedOnDisk(latest)
           if (!changed.ok) setSyncFailure({ at: "local", trouble: changed.error })
-          else if (changed.value.length > 0) setSyncMessage(t("syncResolution.providerUnavailable", { files: changed.value.join(", ") }))
-          else if (await localFolderHasPending(current)) {
-            const result = await saveToLocalFolder()
-            if (result.ok) setSyncMessage(t("remotes.syncDone"))
-            else setSyncFailure({ at: "local", trouble: result.error })
-          } else {
-            const result = await reloadLocalFolder()
-            if (result.ok) setSyncMessage(t("remotes.syncDone"))
-            else setSyncFailure({ at: "local", trouble: result.error })
+          else if (changed.value.length === 0) {
+            if (await localFolderHasPending(latest)) {
+              const result = await saveToLocalFolder()
+              if (result.ok) setSyncMessage(t("remotes.syncDone"))
+              else setSyncFailure({ at: "local", trouble: result.error })
+            } else {
+              const result = await reloadLocalFolder()
+              if (result.ok) setSyncMessage(t("remotes.syncDone"))
+              else setSyncFailure({ at: "local", trouble: result.error })
+            }
           }
         }
       }
     } else setSyncMessage(t("remotes.syncDone"))
+    setCheckRevision((revision) => revision + 1)
+    refreshBehind()
     setSyncing(false)
   }
   const refreshComparison = async (): Promise<void> => {

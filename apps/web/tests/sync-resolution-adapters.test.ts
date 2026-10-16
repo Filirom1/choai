@@ -428,7 +428,7 @@ test("local comparison tracks Markdown documentation as text", async () => {
   }))
 })
 
-test("local deletion, unknown export and binary companion inspection retain their file roles", async () => {
+test("local deletion is reviewed, while destination-only unknown files are adopted", async () => {
   open = { ...open, source: { ...open.source, files: {} } }
   expect(await localResolution.resolveLocalResolution(await snapshotOfText("destination\n", null), { take: "local" })).toEqual({ ok: true, value: undefined })
   expect(localRemovals).toEqual(["main.journal"])
@@ -442,7 +442,15 @@ test("local deletion, unknown export and binary companion inspection retain thei
   })
   const exported = await localResolution.exportLocalResolution(unknown)
   expect(exported.ok && await exported.value.arrayBuffer()).toEqual(await unknownFile.file.arrayBuffer())
-  expect(await localResolution.resolveLocalResolution(unknown, { take: "destination" })).toMatchObject({ ok: false, error: { at: "unsupported" } })
+  open = { ...open, source: { ...open.source, files: {} }, local: { ...open.local, base: {} } }
+  expect(await localResolution.inspectLocalResolution()).toEqual({ ok: true, value: [] })
+  expect(githubReplacements.map(({ path }) => path)).toEqual(["archive.bin"])
+
+  open = { ...open, source: { ...open.source, files: {} }, local: { ...open.local, base: {} } }
+  disk = [file("README - Copy.md", "Notes\n")]
+  githubReplacements = []
+  expect(await localResolution.inspectLocalResolution()).toEqual({ ok: true, value: [] })
+  expect(githubReplacements).toEqual([])
 
   const companion = new Blob([Uint8Array.of(1, 2)], { type: "image/jpeg" })
   open = {
@@ -578,7 +586,7 @@ test("a partial GitHub push reports completed paths and retries only what remain
   expect(githubUploads.map(({ path }) => path)).toEqual(["books/first.jpg", "books/second.jpg"])
 })
 
-test("manual GitHub text is validated before upload, and unknown binaries remain export-only", async () => {
+test("manual GitHub text is validated before upload, and a new unknown binary can be adopted", async () => {
   open = { ...open, local: undefined, remote: githubRemote }
   trialFailure = { kind: "read-failed", detail: "invalid journal" }
   expect(await githubResolution.resolve(gitTextSnapshot(), { take: "manual", text: "invalid" })).toEqual({ ok: false, error: { at: "hledger", trouble: trialFailure } })
@@ -586,9 +594,9 @@ test("manual GitHub text is validated before upload, and unknown binaries remain
 
   trialFailure = undefined
   const unknown = await gitBinarySnapshot("unknown")
-  expect(await githubResolution.resolve(unknown, { take: "destination" })).toMatchObject({ ok: false, error: { at: "unsupported" } })
+  expect(await githubResolution.resolve(unknown, { take: "destination" })).toEqual({ ok: true, value: undefined })
   expect((await githubResolution.exportUnknown(unknown)).ok).toBe(true)
-  expect(githubReplacements).toEqual([])
+  expect(githubReplacements.map(({ path }) => path)).toEqual(["archive.bin"])
 })
 
 test("resolution sessions stay scoped to a book, keep storage failures structured, and retry cleanup", async () => {

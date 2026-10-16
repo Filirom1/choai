@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 
 import {
   appendMergeProposal,
+  automaticAdditions,
   blockedSync,
   captureFile,
   diffSections,
@@ -29,6 +30,7 @@ describe("sync conflict snapshots", () => {
 
   test("classifies additions, changes, identical edits and contradictory deletions", () => {
     expect(snapshot({}, text("local"), {}).state).toBe("added-local")
+    expect(snapshot({}, {}, text("remote")).state).toBe("added-destination")
     expect(snapshot({}, text("local"), text("remote")).state).toBe("added-both")
     expect(snapshot({}, text("same"), text("same")).state).toBe("added-both-same")
     expect(snapshot(text("base"), text("base"), text("remote")).state).toBe("changed-destination")
@@ -36,6 +38,13 @@ describe("sync conflict snapshots", () => {
     expect(snapshot(text("base"), {}, text("remote")).state).toBe("deleted-local-changed-destination")
     expect(snapshot(text("base"), {}, text("base")).state).toBe("deleted-local")
     expect(snapshot(text("base"), text("base"), {}).state).toBe("deleted-destination")
+  })
+
+  test("automatically selects only files added at the destination without a local copy", () => {
+    const remoteOnly = snapshot({}, {}, text("remote"))
+    const addedOnBothSides = snapshot({}, text("local"), text("remote"))
+    const changedOnBothSides = snapshot(text("base"), text("local"), text("remote"))
+    expect(automaticAdditions([remoteOnly, addedOnBothSides, changedOnBothSides])).toEqual([remoteOnly])
   })
 
   test("compares captured versions by content, role and concurrency identities", () => {

@@ -10,7 +10,7 @@ import { isGitHubRemote } from "~/core/journal/remote"
 import type { Trouble } from "~/core/hledger/wire"
 import { deleteFile, fetchBinary, fetchFile, putBinary, putFile, repositoryFiles, type Failure, type Where } from "./api"
 import { agree, agreedOn, agreementsFor, forgetAgreement, token, type Agreed } from "./kept"
-import { appendMergeProposal, blockedSync, captureFile, choiceText, sameVersions, type CapturedVersion, type FileSnapshot, type ResolutionChoice } from "~/core/sync/conflict"
+import { appendMergeProposal, automaticAdditions, blockedSync, captureFile, choiceText, sameVersions, type CapturedVersion, type FileSnapshot, type ResolutionChoice } from "~/core/sync/conflict"
 
 /**
  * Keeping the books here and the books in the repository the same.
@@ -419,14 +419,16 @@ export const inspect = async (): Promise<Result<readonly FileSnapshot[], Snag>> 
   }))
   const failed = files.find((file) => !file.ok)
   if (failed !== undefined && !failed.ok) return Err(failed.error.snag)
-  return Ok(files.flatMap((file) => {
+  const snapshots = files.flatMap((file) => {
     if (!file.ok) return []
     const { snapshot } = file.value
     return snapshot.state === "unchanged" || snapshot.state === "added-local" || snapshot.state === "changed-local" ||
       snapshot.state === "changed-both-same" || snapshot.state === "added-both-same" || snapshot.state === "deleted-both"
       ? []
       : [snapshot]
-  }))
+  })
+  const adopted = await adoptRemoteAdditions(automaticAdditions(snapshots))
+  return adopted.ok ? Ok(snapshots.filter(({ state }) => state !== "added-destination")) : adopted
 }
 
 export type ResolutionFailure =
@@ -440,7 +442,9 @@ export const resolve = async (
   choice: ResolutionChoice,
 ): Promise<Result<void, ResolutionFailure>> => {
   if (choice.take === "later") return Ok(undefined)
-  if (snapshot.role === "unknown") return Err({ at: "unsupported", path: snapshot.path })
+  if (snapshot.role === "unknown" && (snapshot.state !== "added-destination" || choice.take !== "destination")) {
+    return Err({ at: "unsupported", path: snapshot.path })
+  }
   const reach = await reachable()
   if (!reach.ok) return reach
   const { token: key, open, remote } = reach.value
@@ -514,6 +518,20 @@ export const resolve = async (
     : Err({ at: "github", failure: written.error })
   await agree(open.bookId, { path: snapshot.path, repoPath, sha: written.value.sha, baseText: resultText, at: Date.now() })
   return Ok(undefined)
+}
+
+const adoptRemoteAdditions = async (snapshots: readonly FileSnapshot[]): Promise<Result<void, Snag>> => {
+  const [snapshot, ...later] = snapshots
+  if (snapshot === undefined) return Ok(undefined)
+  const adopted = await resolve(snapshot, { take: "destination" })
+  if (!adopted.ok) {
+    const failure = adopted.error
+    if (failure.at === "github" || failure.at === "hledger") return Err(failure)
+    if (failure.at === "local-kept") return Err({ at: "github", failure: failure.failure })
+    if (failure.at === "not-connected" || failure.at === "no-place" || failure.at === "no-journal" || failure.at === "partial" || failure.at === "local-changes" || failure.at === "diverged") return Err(failure)
+    return Err({ at: "github", failure: { kind: "refused", status: 0, detail: `Could not add remote file ${snapshot.path}` } })
+  }
+  return adoptRemoteAdditions(later)
 }
 
 export const exportUnknown = async (snapshot: FileSnapshot): Promise<Result<Blob, ResolutionFailure>> => {

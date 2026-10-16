@@ -1,6 +1,6 @@
 import { Err, Ok, getOrUndefined, type Result } from "~/core/lib/monad"
 import { readText } from "~/core/lib/text"
-import { captureFile, sameVersions, type CapturedVersion, type FileSnapshot, type ResolutionChoice } from "~/core/sync/conflict"
+import { automaticAdditions, captureFile, sameVersions, type CapturedVersion, type FileSnapshot, type ResolutionChoice } from "~/core/sync/conflict"
 import { companionsIn } from "~/core/journal/companions"
 import { hledgerLatestPaths, isHiddenPath, isHledgerLatestPath } from "~/core/journal/hidden"
 import { includedBy } from "~/core/journal/layout"
@@ -27,7 +27,7 @@ const diskIdentity = localVersionIdentity
 const fileAt = (files: readonly LocalDiskFile[], path: string): File | undefined =>
   files.find((file) => file.path === path)?.file
 
-const textFile = (path: string): boolean => /\.(journal|hledger|ledger)$/i.test(path)
+const textFile = (path: string): boolean => /\.(journal|hledger|ledger|rules|csv|tsv|ssv|txt|md|markdown|json|jsonl)$/i.test(path)
 const binaryFile = (path: string): boolean => /\.(pdf|png|jpe?g|gif|webp|bmp)$/i.test(path)
 
 const captureDiskFile = async (
@@ -133,7 +133,9 @@ export const inspectLocalResolution = async (): Promise<Result<readonly FileSnap
   }))
   const failure = snapshots.find((snapshot) => !snapshot.ok)
   if (failure !== undefined && !failure.ok) return failure
-  return Ok(snapshots.flatMap((snapshot) => snapshot.ok && pending(snapshot.value) ? [snapshot.value] : []))
+  const unresolved = snapshots.flatMap((snapshot) => snapshot.ok && pending(snapshot.value) ? [snapshot.value] : [])
+  const adopted = await adoptLocalAdditions(automaticAdditions(unresolved))
+  return adopted.ok ? Ok(unresolved.filter(({ state }) => state !== "added-destination")) : adopted
 }
 
 const recapture = async (
@@ -184,7 +186,9 @@ export const resolveLocalResolution = async (
   choice: ResolutionChoice,
 ): Promise<Result<void, LocalResolutionFailure>> => {
   if (choice.take === "later") return Ok(undefined)
-  if (snapshot.role === "unknown") return Err({ at: "unsupported", path: snapshot.path })
+  if (snapshot.role === "unknown" && (snapshot.state !== "added-destination" || choice.take !== "destination")) {
+    return Err({ at: "unsupported", path: snapshot.path })
+  }
   const open = getOrUndefined(journal())
   if (open === undefined || open.local === undefined || open.bookId !== snapshot.bookId || !safeLocalPath(snapshot.path)) {
     return Err({ at: "stale", path: snapshot.path })
@@ -199,6 +203,13 @@ export const resolveLocalResolution = async (
   return snapshot.role === "accounting"
     ? resolveLocalText(open, snapshot, choice)
     : resolveLocalBinary(open, snapshot, choice)
+}
+
+const adoptLocalAdditions = async (snapshots: readonly FileSnapshot[]): Promise<Result<void, LocalResolutionFailure>> => {
+  const [snapshot, ...later] = snapshots
+  if (snapshot === undefined) return Ok(undefined)
+  const adopted = await resolveLocalResolution(snapshot, { take: "destination" })
+  return adopted.ok ? adoptLocalAdditions(later) : adopted
 }
 
 const resolveLocalText = async (

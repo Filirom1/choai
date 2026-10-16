@@ -10,7 +10,7 @@ import { accessToken, sessionToken } from "./auth"
 import { companionsIn } from "~/core/journal/companions"
 import { hledgerLatestPaths, isHiddenPath as hiddenPath, isHledgerLatestPath } from "~/core/journal/hidden"
 import { includedBy } from "~/core/journal/layout"
-import { captureFile, sameVersions, type CapturedVersion, type FileSnapshot, type ResolutionChoice } from "~/core/sync/conflict"
+import { automaticAdditions, captureFile, sameVersions, type CapturedVersion, type FileSnapshot, type ResolutionChoice } from "~/core/sync/conflict"
 import {
   FOLDER_MIME,
   createBinary,
@@ -678,7 +678,8 @@ export const inspectResolution = async (): Promise<Result<readonly FileSnapshot[
       baseBinary: { size: snapshot.destination.content.size, fingerprint: snapshot.destination.content.fingerprint ?? "" },
     })
   }))
-  return Ok(relevant)
+  const adopted = await adoptRemoteAdditions(automaticAdditions(relevant))
+  return adopted.ok ? Ok(relevant.filter(({ state }) => state !== "added-destination")) : adopted
 }
 
 const currentDriveSnapshot = async (
@@ -740,7 +741,10 @@ export const resolveResolution = async (
   snapshot: FileSnapshot,
   choice: ResolutionChoice,
 ): Promise<Result<void, ResolutionFailure>> => {
-  if (choice.take === "later" || snapshot.role === "unknown") return choice.take === "later" ? Ok(undefined) : Err({ at: "unsupported", path: snapshot.path })
+  if (choice.take === "later") return Ok(undefined)
+  if (snapshot.role === "unknown" && (snapshot.state !== "added-destination" || choice.take !== "destination")) {
+    return Err({ at: "unsupported", path: snapshot.path })
+  }
   const open = getOrUndefined(journal())
   if (open === undefined) return Err({ at: "unsupported", path: snapshot.path })
   if (open.bookId !== snapshot.bookId || !isGoogleDriveRemote(open.remote) || !safePath(snapshot.path)) {
@@ -755,6 +759,18 @@ export const resolveResolution = async (
   return [snapshot.local, snapshot.destination].some((version) => version.content?.kind === "binary")
     ? resolveDriveBinary(token, open, open.remote, current.value.file, snapshot, choice)
     : resolveDriveText(token, open, open.remote, current.value.file, snapshot, choice)
+}
+
+const adoptRemoteAdditions = async (snapshots: readonly FileSnapshot[]): Promise<Result<void, Snag>> => {
+  const [snapshot, ...later] = snapshots
+  if (snapshot === undefined) return Ok(undefined)
+  const adopted = await resolveResolution(snapshot, { take: "destination" })
+  if (!adopted.ok) {
+    const failure = adopted.error
+    if (failure.at === "drive" || failure.at === "hledger") return Err(failure)
+    return Err({ at: "conflict", path: snapshot.path })
+  }
+  return adoptRemoteAdditions(later)
 }
 
 const resolveDriveText = async (

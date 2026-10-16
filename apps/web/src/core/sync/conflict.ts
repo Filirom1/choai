@@ -115,6 +115,9 @@ export const captureFile = (input: Omit<FileSnapshot, "state">): FileSnapshot =>
   state: stateOf(input.base, input.local, input.destination),
 })
 
+export const automaticAdditions = (snapshots: readonly FileSnapshot[]): readonly FileSnapshot[] =>
+  snapshots.filter(({ state }) => state === "added-destination")
+
 export const sameVersions = (left: FileSnapshot, right: FileSnapshot): boolean =>
   left.bookId === right.bookId && left.path === right.path && left.role === right.role &&
   left.base.identity === right.base.identity && left.base.fingerprint === right.base.fingerprint &&
