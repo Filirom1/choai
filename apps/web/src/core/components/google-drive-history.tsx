@@ -5,7 +5,7 @@ import { DriveSnag } from "~/core/components/google-drive-panel"
 import { DiffView } from "~/core/components/git/diff-view"
 import { accessToken, getRevisionContent, loadIdentity, readDriveHistory, sessionToken, type DriveHistory, type DriveRevision, type Failure, type Snag } from "~/core/google-drive/index"
 import { clientIdNow } from "~/core/google-drive/kept"
-import { changes, lineDiff } from "~/core/lib/diff"
+import { aroundChanges, changes, lineDiff } from "~/core/lib/diff"
 import { Ok, type Result } from "~/core/lib/monad"
 import type { GoogleDriveRemote } from "~/core/journal/remote"
 import { t } from "~/core/i18n"
@@ -160,7 +160,7 @@ export function GoogleDriveHistory(props: {
                         </p>
                         <Show when={totals()}>{(count) => <p class="text-xs text-muted-foreground">{t("gdrive.revisionChanges", { added: count().added, removed: count().removed })}</p>}</Show>
                       </header>
-                      <Show when={diff()}>{(lines) => <DiffView lines={lines()} />}</Show>
+                      <Show when={diff()}>{(lines) => <DiffView lines={aroundChanges(lines())} />}</Show>
                     </article>
                   </Show>
                 )}
