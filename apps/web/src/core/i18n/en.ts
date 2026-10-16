@@ -13,6 +13,10 @@
 export const en = {
   app: {
     renew: "A newer version is ready — take it now",
+    renewTitle: "A new version is ready",
+    renewMessage: "Updating will reload the app. Any work not yet saved may be lost.",
+    renewLater: "Not now",
+    renewNow: "Update now",
   },
   nav: {
     journal: "Journal",

@@ -466,6 +466,18 @@ export function Layout(props: ParentProps) {
 
   return (
     <>
+      <Show when={renewal.prompting()}>
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="alertdialog" aria-modal="true" aria-labelledby="renew-title" aria-describedby="renew-message">
+          <div class="w-full max-w-sm rounded-lg border border-border bg-background p-6 shadow-lg">
+            <h2 id="renew-title" class="text-lg font-semibold">{t("app.renewTitle")}</h2>
+            <p id="renew-message" class="mt-2 text-sm text-muted-foreground">{t("app.renewMessage")}</p>
+            <div class="mt-6 flex justify-end gap-2">
+              <Button variant="outline" onClick={renewal.dismiss}>{t("app.renewLater")}</Button>
+              <Button onClick={renewal.take}>{t("app.renewNow")}</Button>
+            </div>
+          </div>
+        </div>
+      </Show>
       <Shell
         titles={
           <TitlesBar

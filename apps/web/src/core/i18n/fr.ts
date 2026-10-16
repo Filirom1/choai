@@ -43,7 +43,14 @@ export const fr: Dictionary = {
       "posting-comment": "commentaire de l’écriture",
     },
   },
-  app: { ...en.app, renew: "Une nouvelle version est prête — l'installer maintenant" },
+  app: {
+    ...en.app,
+    renew: "Une nouvelle version est prête — l'installer maintenant",
+    renewTitle: "Une nouvelle version est disponible",
+    renewMessage: "La mise à jour va recharger l’application. Tout travail non enregistré peut être perdu.",
+    renewLater: "Plus tard",
+    renewNow: "Mettre à jour",
+  },
   nav: {
     ...en.nav,
     journal: "Journal",

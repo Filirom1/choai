@@ -27,17 +27,25 @@ import { registerSW } from "virtual:pwa-register"
 export interface Renewal {
   /** A newer version is installed and standing by. */
   readonly waiting: Accessor<boolean>
+  /** Whether the update prompt is open. */
+  readonly prompting: Accessor<boolean>
+  /** Dismiss the prompt without taking the waiting update. */
+  readonly dismiss: () => void
   /** Hand over to it now, reloading. */
   readonly take: () => void
 }
 
 export const createRenewal = (askAgainEvery: number): Renewal => {
   const [waiting, setWaiting] = createSignal(false)
+  const [prompting, setPrompting] = createSignal(false)
   const [asking, setAsking] = createSignal<ServiceWorkerRegistration | undefined>(undefined)
 
   const take = registerSW({
     immediate: true,
-    onNeedRefresh: () => setWaiting(true),
+    onNeedRefresh: () => {
+      setWaiting(true)
+      setPrompting(true)
+    },
     onRegisteredSW: (_at, registration) => setAsking(registration),
   })
 
@@ -59,6 +67,8 @@ export const createRenewal = (askAgainEvery: number): Renewal => {
 
   return {
     waiting,
+    prompting,
+    dismiss: () => setPrompting(false),
     take: () => {
       void take(true)
     },

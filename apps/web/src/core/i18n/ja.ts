@@ -76,6 +76,10 @@ export const ja: Dictionary = {
   },
   app: {
     renew: "新しい版が準備できています — 今すぐ更新",
+    renewTitle: "新しいバージョンが利用できます",
+    renewMessage: "更新するとアプリが再読み込みされます。保存していない作業は失われる可能性があります。",
+    renewLater: "後で",
+    renewNow: "今すぐ更新",
   },
   nav: {
     journal: "仕訳帳",
