@@ -387,6 +387,12 @@ export const ja: Dictionary = {
     languageHint: "ここで選ばないかぎり、ブラウザの言語に従います。",
     appearance: "外観",
     appearanceHint: "自動にすると端末に従います。夜になると暗くなる設定も、そのまま反映されます。",
+    accountSort: "勘定科目の並び順",
+    accountSortHint: "左側の一覧で勘定科目を並べる方法を選びます。",
+    accountSortOptions: {
+      chart: "勘定科目表順",
+      alphabetical: "アルファベット順",
+    },
     documents: "書類",
     documentTag: "帳簿のタグ名",
     documentFolder: "帳簿内のフォルダー",

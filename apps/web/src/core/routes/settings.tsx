@@ -5,11 +5,11 @@ import { LOCALES, LOCALE_NAMES, locale, setLocale, t } from "~/core/i18n"
 import { Button } from "~/core/components/ui/button"
 import { pageOf } from "~/core/address/address"
 import { SCHEMES, scheme, setScheme } from "~/core/lib/theme"
+import { ACCOUNT_SORTS } from "~/core/journal/declarations"
 import { TextField, TextFieldInput } from "~/core/components/ui/text-field"
 import { DEFAULT_DOCUMENT_SETTINGS, validDocumentSettings } from "~/core/journal/documents"
-import { validImportSettings } from "~/core/journal/book-config"
+import { BOOK_CONFIG_PATH, DEFAULT_BOOK_CONFIG, validImportSettings } from "~/core/journal/book-config"
 import { bookSettings, saveBookSettings, type BookSettingsTrouble } from "~/core/journal/book-settings"
-import { BOOK_CONFIG_PATH } from "~/core/journal/book-config"
 import { journal } from "~/core/journal/store"
 import { getOrUndefined } from "~/core/lib/monad"
 
@@ -30,12 +30,13 @@ export const SECTIONS: readonly Section[] = [
   { id: "language", name: () => t("settings.language") },
   { id: "appearance", name: () => t("settings.appearance") },
   { id: "book", name: () => t("settings.book") },
+  { id: "account-sort", name: () => t("settings.accountSort") },
 ]
 
 /** Everything set once and then left alone, one section at a time. */
 export default function Settings(): JSX.Element {
   const location = useLocation()
-  const [draft, setDraft] = createSignal({ documents: DEFAULT_DOCUMENT_SETTINGS, invert: false, imports: { csvFolder: "", rulesFolder: "" } })
+  const [draft, setDraft] = createSignal({ documents: DEFAULT_DOCUMENT_SETTINGS, invert: false, imports: { csvFolder: "", rulesFolder: "" }, accountSort: DEFAULT_BOOK_CONFIG.accountSort })
   const [saving, setSaving] = createSignal(false)
   const [failure, setFailure] = createSignal<BookSettingsTrouble>()
   const section = createMemo(() => pageOf(location.hash))
@@ -56,8 +57,8 @@ export default function Settings(): JSX.Element {
     on(configAddress, () => {
       const settings = bookSettings()
       setDraft(settings.ok
-        ? { documents: settings.value.documents, invert: settings.value.invert, imports: settings.value.imports }
-        : { documents: DEFAULT_DOCUMENT_SETTINGS, invert: false, imports: { csvFolder: "", rulesFolder: "" } })
+        ? { documents: settings.value.documents, invert: settings.value.invert, imports: settings.value.imports, accountSort: settings.value.accountSort }
+        : { documents: DEFAULT_DOCUMENT_SETTINGS, invert: false, imports: { csvFolder: "", rulesFolder: "" }, accountSort: DEFAULT_BOOK_CONFIG.accountSort })
       setFailure(undefined)
     }),
   )
@@ -124,6 +125,25 @@ export default function Settings(): JSX.Element {
             {(current) => <p class="text-xs text-muted-foreground">{t("settings.bookHint", { name: current().source.label })}</p>}
           </Show>
         </div>
+        <section id="account-sort" class="flex flex-col gap-2">
+          <h3 class="text-sm font-medium">{t("settings.accountSort")}</h3>
+          <Show when={open()} fallback={<p class="text-xs text-muted-foreground">{t("settings.noBook")}</p>}>
+            <div class="flex flex-wrap gap-2">
+              <For each={ACCOUNT_SORTS}>
+                {(option) => (
+                  <Button
+                    variant={draft().accountSort === option ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setDraft({ ...draft(), accountSort: option })}
+                  >
+                    {t(`settings.accountSortOptions.${option}`)}
+                  </Button>
+                )}
+              </For>
+            </div>
+            <p class="text-xs text-muted-foreground">{t("settings.accountSortHint")}</p>
+          </Show>
+        </section>
         <Show when={open()}>
           <Show when={configurationFailure()}>
             {(message) => <p role="alert" class="text-sm text-error">{message()}</p>}

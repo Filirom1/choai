@@ -3,7 +3,7 @@ import { createResource, createRoot } from "solid-js"
 import { ask } from "~/core/hledger/client"
 import type { AccountType } from "~/core/hledger/wire"
 import { getOrUndefined } from "~/core/lib/monad"
-import { inChartOrder, ofKinds, withoutKind, type Kind } from "./declarations"
+import { inChartOrder, ofKinds, orderedAccounts, withoutKind, type AccountSort, type Kind } from "./declarations"
 import { journal } from "./store"
 
 /**
@@ -53,6 +53,9 @@ export const withoutKindNow = (account: string): string => withoutKind(account, 
  */
 export const inChartOrderNow = (accounts: readonly string[]): readonly string[] =>
   inChartOrder(accounts, placings[0]() ?? {})
+
+export const inAccountOrderNow = (accounts: readonly string[], sort: AccountSort): readonly string[] =>
+  orderedAccounts(accounts, placings[0]() ?? {}, sort)
 
 /**
  * The open journal's accounts of these kinds, in the order its chart is read.

@@ -248,6 +248,12 @@ export const fr: Dictionary = {
     languageHint: "Choisie d'après votre navigateur, sauf si vous en sélectionnez une ici.",
     appearance: "Apparence",
     appearanceHint: "Le mode automatique suit l'appareil, y compris les écrans qui s'assombrissent la nuit.",
+    accountSort: "Ordre des comptes",
+    accountSortHint: "Choisissez l’ordre des comptes dans la liste de gauche.",
+    accountSortOptions: {
+      chart: "Plan comptable",
+      alphabetical: "Alphabétique",
+    },
     documents: "Justificatifs",
     documentTag: "Nom du tag des justificatifs",
     documentFolder: "Dossier des justificatifs dans le livre",

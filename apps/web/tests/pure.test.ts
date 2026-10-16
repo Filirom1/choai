@@ -24,6 +24,7 @@ import {
   declarationsIn,
   declaring,
   inChartOrder,
+  orderedAccounts,
   ofKinds,
 } from "~/core/journal/declarations"
 import { capabilitiesWith, viewsWith, type View } from "~/edition/types"
@@ -572,6 +573,15 @@ describe("a chart of accounts", () => {
     expect(inChartOrder(ARRIVED, DECLARED).slice(0, 4)).toEqual([
       "資産", "資産:現金", "資産:銀行", "資産:銀行:普通預金",
     ])
+  })
+
+  test("the alphabetical choice sorts the full account names", () => {
+    expect(orderedAccounts(["expenses:food", "assets:cash", "assets", "liabilities:card", "expenses"], {}, "alphabetical"))
+      .toEqual(["assets", "assets:cash", "expenses", "expenses:food", "liabilities:card"])
+  })
+
+  test("the chart choice keeps the accounting order", () => {
+    expect(orderedAccounts(ARRIVED, DECLARED, "chart")).toEqual(inChartOrder(ARRIVED, DECLARED))
   })
 
   /** A kind travels down, so a journal that declares its leaves is the same journal. */

@@ -140,6 +140,19 @@ export const inChartOrder = (
   return [...accounts].sort((a, b) => (rank.get(topOf(a)) ?? LAST) - (rank.get(topOf(b)) ?? LAST))
 }
 
+export const ACCOUNT_SORTS = ["chart", "alphabetical"] as const
+
+export type AccountSort = (typeof ACCOUNT_SORTS)[number]
+
+export const orderedAccounts = (
+  accounts: readonly string[],
+  types: Readonly<Record<string, AccountType>>,
+  sort: AccountSort,
+): readonly string[] =>
+  sort === "alphabetical"
+    ? [...accounts].sort((left, right) => left.localeCompare(right))
+    : inChartOrder(accounts, types)
+
 /**
  * The same, narrowed to the branches a statement of these kinds is built from.
  *

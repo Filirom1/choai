@@ -8,6 +8,7 @@ const config = {
   reports: [report],
   invert: true,
   imports: { csvFolder: "imports/csv", rulesFolder: "imports/rules" },
+  accountSort: "alphabetical" as const,
 }
 
 describe("the configuration that travels with a book", () => {
@@ -23,11 +24,16 @@ describe("the configuration that travels with a book", () => {
   test("reads older settings files with defaults for newer settings", () => {
     const legacy = { documents: config.documents, reports: config.reports }
     const files = { [BOOK_CONFIG_PATH]: JSON.stringify(legacy) }
-    expect(bookConfigFromFiles(files)).toEqual({ ok: true, value: { ...legacy, invert: false, imports: DEFAULT_BOOK_CONFIG.imports } })
+    expect(bookConfigFromFiles(files)).toEqual({ ok: true, value: { ...legacy, invert: false, imports: DEFAULT_BOOK_CONFIG.imports, accountSort: "chart" } })
   })
 
   test("refuses an invalid configuration instead of silently dropping fields", () => {
     const files = { [BOOK_CONFIG_PATH]: JSON.stringify({ ...config, private: true }) }
+    expect(bookConfigFromFiles(files)).toEqual({ ok: false, error: { kind: "invalid-shape" } })
+  })
+
+  test("refuses an unknown account order", () => {
+    const files = { [BOOK_CONFIG_PATH]: JSON.stringify({ ...config, accountSort: "recent" }) }
     expect(bookConfigFromFiles(files)).toEqual({ ok: false, error: { kind: "invalid-shape" } })
   })
 })

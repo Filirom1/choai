@@ -3,7 +3,8 @@ import { For, Show, type JSX } from "solid-js"
 import { journal } from "~/core/journal/store"
 import { hasMovementNow } from "~/core/journal/moved"
 import { accountQuery, useQuery } from "~/core/journal/query"
-import { inChartOrderNow } from "~/core/journal/chart"
+import { inAccountOrderNow } from "~/core/journal/chart"
+import { accountSort } from "~/core/journal/account-sort"
 import { getOrUndefined } from "~/core/lib/monad"
 import { t } from "~/core/i18n"
 import { byTop, depthOf, leafOf } from "~/core/explorer/tree"
@@ -50,7 +51,7 @@ export function JournalExplorer(props: {
           >
             {t("accounts.all")}
           </button>
-          <For each={byTop(inChartOrderNow(open().summary.accounts))}>
+          <For each={byTop(inAccountOrderNow(open().summary.accounts, accountSort()))}>
             {(branch) => (
               <div>
                 <For each={branch.accounts}>

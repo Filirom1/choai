@@ -358,6 +358,12 @@ export const en = {
     languageHint: "Chosen from your browser unless you pick one here.",
     appearance: "Appearance",
     appearanceHint: "Automatic follows the device, including a screen that darkens itself at night.",
+    accountSort: "Account order",
+    accountSortHint: "Choose how accounts are ordered in the left-hand list.",
+    accountSortOptions: {
+      chart: "Chart of accounts",
+      alphabetical: "Alphabetical",
+    },
     documents: "Documents",
     documentTag: "Journal tag name",
     documentFolder: "Folder inside the journal",

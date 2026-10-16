@@ -1,6 +1,7 @@
 import { Err, Ok, type Result } from "~/core/lib/monad"
 import { decodedReports, type SavedReport } from "~/core/reports/custom"
 import { DEFAULT_DOCUMENT_SETTINGS, validDocumentSettings, type DocumentSettings } from "./documents"
+import { ACCOUNT_SORTS, type AccountSort } from "./declarations"
 
 export const BOOK_CONFIG_PATH = "choai-settings.jsonl"
 
@@ -14,6 +15,7 @@ export interface BookConfig {
   readonly reports: readonly SavedReport[]
   readonly invert: boolean
   readonly imports: ImportSettings
+  readonly accountSort: AccountSort
 }
 
 export type BookConfigTrouble =
@@ -37,6 +39,7 @@ export const DEFAULT_BOOK_CONFIG: BookConfig = {
   reports: [],
   invert: false,
   imports: DEFAULT_IMPORT_SETTINGS,
+  accountSort: "chart",
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -65,8 +68,9 @@ export const bookConfigFromFiles = (
     return Err({ kind: "invalid-json", cause })
   }
 
-  if (!isRecord(value) || !hasOnlyWithOptional(value, ["documents", "reports", "invert", "imports"], ["invert", "imports"])) return Err({ kind: "invalid-shape" })
+  if (!isRecord(value) || !hasOnlyWithOptional(value, ["documents", "reports", "invert", "imports", "accountSort"], ["invert", "imports", "accountSort"])) return Err({ kind: "invalid-shape" })
   if (typeof value.invert !== "undefined" && typeof value.invert !== "boolean") return Err({ kind: "invalid-shape" })
+  if (typeof value.accountSort !== "undefined" && !ACCOUNT_SORTS.some((sort) => sort === value.accountSort)) return Err({ kind: "invalid-shape" })
   const documents = value.documents
   if (!isRecord(documents) || !hasOnly(documents, ["tag", "folder"])) return Err({ kind: "invalid-shape" })
   if (typeof documents.tag !== "string" || typeof documents.folder !== "string") return Err({ kind: "invalid-shape" })
@@ -77,8 +81,9 @@ export const bookConfigFromFiles = (
   if (!isRecord(imports) || !hasOnly(imports, ["csvFolder", "rulesFolder"])) return Err({ kind: "invalid-shape" })
   if (typeof imports.csvFolder !== "string" || typeof imports.rulesFolder !== "string") return Err({ kind: "invalid-shape" })
   const importSettings = { csvFolder: imports.csvFolder, rulesFolder: imports.rulesFolder }
+  const accountSort = ACCOUNT_SORTS.find((sort) => sort === value.accountSort) ?? "chart"
   return validDocumentSettings(documentSettings) && validImportSettings(importSettings) && reports.ok
-    ? Ok({ documents: documentSettings, reports: reports.value, invert: value.invert ?? false, imports: importSettings })
+    ? Ok({ documents: documentSettings, reports: reports.value, invert: value.invert ?? false, imports: importSettings, accountSort })
     : Err({ kind: "invalid-shape" })
 }
 
