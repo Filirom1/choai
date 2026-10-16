@@ -1,4 +1,4 @@
-import { Show, createResource, createSignal, type JSX } from "solid-js"
+import { For, Show, createResource, createSignal, type JSX } from "solid-js"
 import { useLocation } from "@solidjs/router"
 
 import { Button } from "~/core/components/ui/button"
@@ -75,6 +75,14 @@ export function RemoteExplorer(props: {
     const remote = open()?.remote
     return !isGitHubRemote(remote) ? "" : `${remote.owner}/${remote.repo}`
   }
+  const activeProvider = (): Provider | undefined => {
+    const current = open()
+    if (isGoogleDriveRemote(current?.remote)) return "google-drive"
+    if (current?.remote === undefined && current?.local !== undefined) return "local"
+    return isGitHubRemote(current?.remote) ? "github" : undefined
+  }
+  const chooseProvider = (provider: Provider): void =>
+    go(provider === "github" ? { at: "connection" } : provider === "google-drive" ? { at: "drive" } : { at: "local" })
   const lookingAtConnection = (): boolean =>
     appPath(location.pathname) === REMOTES && lookingAt(pageOf(location.hash)).at === "connection"
 
@@ -82,6 +90,7 @@ export function RemoteExplorer(props: {
     const remote = open()?.remote
     return (
       <div class="flex flex-col gap-2 py-2">
+        <ProviderMenu active={activeProvider()} onChoose={chooseProvider} />
         <Heading>{t("gdrive.title")}</Heading>
         <button
           type="button"
@@ -108,6 +117,7 @@ export function RemoteExplorer(props: {
   if (open()?.remote === undefined && open()?.local !== undefined) {
     return (
       <div class="flex flex-col gap-2 py-2">
+        <ProviderMenu active={activeProvider()} onChoose={chooseProvider} />
         <Heading>{t("local.title")}</Heading>
         <button type="button" onClick={() => go({ at: "local" })} class="w-full truncate px-3 py-1 text-left text-xs font-mono hover:bg-accent hover:text-accent-foreground">
           {open()?.local?.handle.name}
@@ -117,10 +127,17 @@ export function RemoteExplorer(props: {
     )
   }
 
+  if (!isGitHubRemote(open()?.remote)) {
+    return (
+      <div class="flex flex-col gap-2 py-2">
+        <ProviderMenu active={undefined} onChoose={chooseProvider} />
+      </div>
+    )
+  }
+
   return (
     <div class="flex flex-col gap-2 py-2">
-      {/* First, as the account an editor's source control is signed in with
-          is: what everything below it sends to, and the way to change it. */}
+      <ProviderMenu active={activeProvider()} onChoose={chooseProvider} />
       <Heading>{t("git.repository")}</Heading>
       <button
         type="button"
@@ -190,6 +207,47 @@ export function RemoteExplorer(props: {
         </button>
       </Show>
     </div>
+  )
+}
+
+type Provider = "github" | "google-drive" | "local"
+
+function ProviderMenu(props: {
+  readonly active: Provider | undefined
+  readonly onChoose: (provider: Provider) => void
+}): JSX.Element {
+  const choices = [
+    { provider: "github", title: () => t("remotes.github") },
+    { provider: "google-drive", title: () => t("remotes.drive") },
+    { provider: "local", title: () => t("remotes.local") },
+  ] as const
+  return (
+    <>
+      <Heading>{t("remotes.destination")}</Heading>
+      <div role="group" aria-label={t("remotes.destination")} class="flex flex-col gap-1">
+        <For each={choices}>
+          {(choice) => {
+            const selected = () => choice.provider === props.active
+            const disabled = () => props.active !== undefined && !selected()
+            return (
+              <button
+                type="button"
+                aria-current={selected() ? "page" : undefined}
+                disabled={disabled()}
+                onClick={() => props.onChoose(choice.provider)}
+                class="flex w-full items-center justify-between gap-2 rounded px-3 py-1 text-left text-xs hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:text-muted-foreground disabled:opacity-50"
+                classList={{ "bg-accent font-medium text-accent-foreground": selected() }}
+              >
+                <span class="truncate">{choice.title()}</span>
+                <Show when={selected()}>
+                  <span class="size-1.5 shrink-0 rounded-full bg-primary" aria-hidden="true" />
+                </Show>
+              </button>
+            )
+          }}
+        </For>
+      </div>
+    </>
   )
 }
 
