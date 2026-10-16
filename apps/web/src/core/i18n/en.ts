@@ -30,6 +30,8 @@ export const en = {
     settings: "Settings",
     showPanels: "Show sidebars",
     hidePanels: "Hide sidebars",
+    expandSidebar: "Expand sidebar",
+    collapseSidebar: "Collapse sidebar",
     back: "Back to the list",
   },
   journal: {
@@ -405,6 +407,8 @@ export const en = {
     saved: "Saved, and read by hledger.",
     unsaved: "Not saved yet.",
     checking: "hledger is reading it…",
+    loadingAttachment: "Loading attachment…",
+    attachmentFailed: "Unable to load attachment.",
   },
   declare: {
     title: "These accounts are not in any statement",

@@ -55,7 +55,7 @@ const MIDDLE_BUTTON = 1
  * owns the ways of closing. Reordering is not here: what gets reordered, and
  * how, is the business of whoever knows what the tabs contain.
  */
-export function Tab(props: { active?: boolean; onSelect?: () => void; onClose?: () => void; children: JSX.Element }): JSX.Element {
+export function Tab(props: { active?: boolean; onSelect?: () => void; onClose?: () => void; closeLabel?: string; children: JSX.Element }): JSX.Element {
   const close = (e: Event): void => {
     e.stopPropagation()
     e.preventDefault()
@@ -77,8 +77,8 @@ export function Tab(props: { active?: boolean; onSelect?: () => void; onClose?: 
         <span
           role="button"
           tabindex={-1}
-          aria-label="Close"
-          title="Close"
+          aria-label={props.closeLabel ?? 'Close'}
+          title={props.closeLabel ?? 'Close'}
           onClick={close}
           class="-mr-1 rounded px-1 leading-none hover:bg-accent hover:text-accent-foreground"
         >

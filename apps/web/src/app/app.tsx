@@ -554,6 +554,8 @@ export function Layout(props: ParentProps) {
             footer={buttonsFor(FOOT)}
             expanded={railExpanded()}
             onToggle={() => setRailExpanded((expanded) => !expanded)}
+            expandLabel={t("nav.expandSidebar")}
+            collapseLabel={t("nav.collapseSidebar")}
             // The trigger arrives already built, so Kobalte gets a wrapper to
             // attach its props and ref to. The wrapper has to be a real box:
             // display:contents would leave it nothing to measure, and the tooltip

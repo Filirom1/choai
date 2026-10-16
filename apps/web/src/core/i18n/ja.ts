@@ -93,6 +93,8 @@ export const ja: Dictionary = {
     settings: "設定",
     showPanels: "サイドバーを表示",
     hidePanels: "サイドバーを隠す",
+    expandSidebar: "サイドバーを展開",
+    collapseSidebar: "サイドバーを折りたたむ",
     back: "一覧に戻る",
   },
   journal: {
@@ -383,6 +385,11 @@ export const ja: Dictionary = {
     application: "アプリケーション",
     book: "現在の帳簿",
     bookHint: "この設定は{{ name }}と一緒に保存され、帳簿のバックアップや同期に含まれます。",
+    importFolders: "CSV インポートフォルダー",
+    csvFolder: "帳簿内の CSV フォルダー",
+    rulesFolder: "帳簿内の rules フォルダー",
+    importFoldersHint: "帳簿からの相対パスです。空欄の場合はルートを使います。CSV と rules ファイルは付属ファイルとして保存され、帳簿と一緒に同期されます。",
+    importFoldersInvalid: "空、.、.. の要素を含まない相対パスを指定してください。",
     noBook: "設定を変更するには帳簿を開いてください。",
     invalidConfig: "この帳簿の設定ファイルが無効です。保存する前に修正または削除してください。",
     saveFailed: "帳簿の設定を保存できませんでした。もう一度お試しください。",
@@ -433,6 +440,8 @@ export const ja: Dictionary = {
     saved: "保存済み。hledger が読めています。",
     unsaved: "まだ保存していません。",
     checking: "hledger が読んでいます…",
+    loadingAttachment: "添付ファイルを読み込んでいます…",
+    attachmentFailed: "添付ファイルを読み込めませんでした。",
   },
   declare: {
     title: "この勘定科目は、どの財務諸表にも入っていません",
@@ -701,7 +710,7 @@ export const ja: Dictionary = {
   licenses: {
     title: "ライセンス",
     app: "choai は GNU General Public License バージョン 3 以降のもとで公開されている自由ソフトウェアです。",
-    copyright: "Copyright © 2026 choai contributors.",
+    copyright: "Copyright © 2026 choai コントリビューター。",
     warranty:
       "法律が認める範囲で、一切の保証はありません。このライセンスの条件のもとで再配布できます。",
     hledger:

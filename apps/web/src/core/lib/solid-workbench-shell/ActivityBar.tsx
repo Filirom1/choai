@@ -40,6 +40,8 @@ export function ActivityBar(props: {
   footer?: ActivityItem[]
   expanded: boolean
   onToggle?: () => void
+  expandLabel?: string
+  collapseLabel?: string
   collapsedWidth?: number
   expandedWidth?: number
   /** false folds it to zero width and hides it completely, drag edge and all.
@@ -87,8 +89,8 @@ export function ActivityBar(props: {
       <button
         type="button"
         onClick={() => props.onToggle?.()}
-        aria-label={props.expanded ? 'Collapse sidebar' : 'Expand sidebar'}
-        title={props.expanded ? 'Collapse sidebar' : 'Expand sidebar'}
+        aria-label={props.expanded ? props.collapseLabel ?? 'Collapse sidebar' : props.expandLabel ?? 'Expand sidebar'}
+        title={props.expanded ? props.collapseLabel ?? 'Collapse sidebar' : props.expandLabel ?? 'Expand sidebar'}
         class="group relative z-10 w-px shrink-0 cursor-pointer border-none bg-border p-0"
       >
         <span class="absolute inset-y-0 -left-1 -right-1 transition-colors group-hover:bg-sky-400/40" />

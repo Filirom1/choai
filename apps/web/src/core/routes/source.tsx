@@ -112,14 +112,14 @@ function Editor(props: { open: OpenJournal }): JSX.Element {
           and the page scrolls. */}
       <Show when={!isAttachment()} fallback={
         <Show when={blob.loading} fallback={
-          <Show when={blob()} fallback={<p class="text-sm text-muted-foreground">Unable to load attachment.</p>}>
+          <Show when={blob()} fallback={<p class="text-sm text-muted-foreground">{t("source.attachmentFailed")}</p>}>
             <Show when={attachment()?.type.startsWith("image/")} fallback={
               <iframe src={previewUrl()} title={path()} class="min-h-[36rem] w-full flex-1 rounded-md border border-border" />
             }>
               <img src={previewUrl()} alt={path()} class="max-h-[70vh] max-w-full rounded-md border border-border object-contain" />
             </Show>
           </Show>
-        }><p class="text-sm text-muted-foreground">Loading attachment…</p></Show>
+        }><p class="text-sm text-muted-foreground">{t("source.loadingAttachment")}</p></Show>
       }>
         <textarea
           class="min-h-[24rem] w-full flex-1 resize-none rounded-md border border-input bg-background p-3 font-mono text-xs leading-relaxed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
