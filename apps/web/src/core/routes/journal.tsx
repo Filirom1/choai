@@ -12,8 +12,10 @@ import { usePage, useQuery } from "~/core/journal/query"
 import { PAGE, offsetOf } from "~/core/journal/paging"
 import { getOrUndefined, matchResource } from "~/core/lib/monad"
 import { Button } from "~/core/components/ui/button"
-import { PaperclipIcon } from "~/core/lib/ui/icons"
+import { ImportIcon, PaperclipIcon, PlusIcon } from "~/core/lib/ui/icons"
 import { startEditingEntry } from "~/core/compose/editing"
+import { dock } from "~/core/dock"
+import { selectCsv } from "~/core/statement/import-selection"
 import { TroubleNote } from "~/core/components/trouble-note"
 import { Welcome } from "~/core/components/welcome"
 import { locale, t } from "~/core/i18n"
@@ -52,7 +54,34 @@ function Entries(): JSX.Element {
         Err: (trouble) => <TroubleNote trouble={trouble} />,
         Ok: (found) => (
           <div class={`report-printable flex flex-col gap-4 ${WIDTH}`}>
-            <div class="flex justify-end">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div class="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  class="report-print-action"
+                  aria-label={t("compose.open")}
+                  title={t("compose.open")}
+                  onClick={() => dock.show("composing")}
+                >
+                  <PlusIcon />
+                  {t("compose.action")}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  class="report-print-action"
+                  aria-label={t("csvImport.title")}
+                  title={t("csvImport.title")}
+                  onClick={() => {
+                    selectCsv(undefined)
+                    dock.show("csv-importing")
+                  }}
+                >
+                  <ImportIcon />
+                  {t("csvImport.action")}
+                </Button>
+              </div>
               <Button variant="outline" size="sm" class="report-print-action" onClick={() => window.print()}>
                 {t("journal.print")}
               </Button>

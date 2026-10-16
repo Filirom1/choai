@@ -81,6 +81,7 @@ export const fr: Dictionary = {
   csvImport: {
     ...en.csvImport,
     title: "Importer un CSV avec hledger",
+    action: "Importer",
     lead: "Lire un CSV avec ses règles hledger. Rien n'est écrit avant d'avoir relu et accepté les écritures générées.",
     chooseCsv: "Choisir un fichier CSV",
     chooseRules: "Choisir un fichier rules",
@@ -468,6 +469,7 @@ export const fr: Dictionary = {
     documentName: "Nom du fichier",
     title: "Nouvelle opération",
     open: "Nouvelle opération",
+    action: "Saisir",
     close: "Fermer",
     date: "Date",
     payee: "Bénéficiaire",

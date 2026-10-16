@@ -12,11 +12,9 @@ import { SnagNote as GitHubSnagNote } from "~/core/components/github-panel"
 import { DriveSnag } from "~/core/components/google-drive-panel"
 import { localFailureWords } from "~/core/components/local-sync-panel"
 import { githubResolutionFailure, SyncResolutionPanel } from "~/core/components/sync-resolution-panel"
-import { ChevronLeftIcon, FunnelIcon, RefreshIcon, PanelLeftIcon, PlusIcon, ImportIcon, CloudIcon } from "~/core/lib/ui/icons"
-import { ReportFilters } from "~/core/components/report-filters"
-import { filtersShown, toggleFilters } from "~/core/reports/filters"
-import { focusOf, narrowsByDate, unfocused, without } from "~/core/journal/terms"
-import { createReading, readQuery } from "~/core/reports/reading"
+import { ChevronLeftIcon, RefreshIcon, PanelLeftIcon, ImportIcon, CloudIcon } from "~/core/lib/ui/icons"
+import { focusOf, unfocused, without } from "~/core/journal/terms"
+import { readQuery } from "~/core/reports/reading"
 import { AccountLedger } from "~/core/components/account-ledger"
 import { ledgerHasAPlace, statementAt } from "~/core/routes/reports"
 import { ADD, FOOT, NAV, railOf, viewAt } from "./views"
@@ -38,7 +36,6 @@ import { searchFor, useQuery } from "~/core/journal/query"
 import { JevKeyPanel } from "~/core/components/jev-key-panel"
 import { AiImportPanel } from "~/core/components/ai-import-panel"
 import { CsvImportPanel } from "~/core/components/csv-import-panel"
-import { selectCsv } from "~/core/statement/import-selection"
 import { ProposalReview } from "~/core/components/proposal-review"
 import { createRenewal } from "~/core/lib/renewal"
 import { QueryBox } from "~/core/components/query-box"
@@ -48,7 +45,7 @@ import { ComposePanel } from "~/core/compose/ComposePanel"
 import { EntryEditor } from "~/core/compose/EntryEditor"
 import { editing, stopEditingEntry } from "~/core/compose/editing"
 import { LAYER_OF, dock, dockedAs, seatDock, type InTheDock } from "~/core/dock"
-import { JOURNAL, SOURCE, appPath, atTheList, atTheWork, dockedIn, readFragment, showsTheWork, withLayer } from "~/core/address/address"
+import { JOURNAL, appPath, atTheList, atTheWork, dockedIn, readFragment, showsTheWork, withLayer } from "~/core/address/address"
 import { useMoves } from "~/core/address/moves"
 import { narrow, overHalf, viewportWidth } from "~/core/lib/narrow"
 import { actionFor } from "~/core/lib/shortcuts"
@@ -377,11 +374,6 @@ export function Layout(props: ParentProps) {
     dock.show("importing")
   }
 
-  const importingCsv = (path?: string): void => {
-    selectCsv(path)
-    dock.show("csv-importing")
-  }
-
   /**
    * A query asked for from outside the tree lands here.
    *
@@ -573,48 +565,8 @@ export function Layout(props: ParentProps) {
             minWidth={() => (snapped() ? wholeWindow() : 168)}
             maxWidth={() => (snapped() ? wholeWindow() : withinWindow())}
             open={panelShown()}
-            header={
-              <>
-                <span>{current().label()}</span>
-                {/* One group at the far end, so the two ways of writing sit
-                    together rather than being spread across the heading. */}
-                <div class="flex items-center gap-1">
-                  <Show when={current().periodic === true && getOrUndefined(journal()) !== undefined}>
-                    <FilterButton />
-                  </Show>
-                  <Show when={getOrUndefined(journal()) !== undefined && (current().href === JOURNAL || current().href === SOURCE)}>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={() => importingCsv()}
-                      aria-label={t("csvImport.title")}
-                      title={t("csvImport.title")}
-                      class="size-6 text-muted-foreground"
-                    >
-                      <ImportIcon />
-                    </Button>
-                  </Show>
-                  <Show when={current().writes && getOrUndefined(journal()) !== undefined}>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={compose}
-                      aria-label={t("compose.open")}
-                      title={t("compose.open")}
-                      class="size-6 text-muted-foreground"
-                    >
-                      {/* Left unsized: Button sets any icon inside it to 16px, and a
-                          smaller box here would be overflowed rather than obeyed. */}
-                      <PlusIcon />
-                    </Button>
-                  </Show>
-                </div>
-              </>
-            }
+            header={<span>{current().label()}</span>}
           >
-            <Show when={filtersShown() && current().periodic === true && getOrUndefined(journal()) !== undefined}>
-              <ReportFilters />
-            </Show>
             <Dynamic component={current().Explorer} onChosen={chose} />
           </SidePanel>
         }
@@ -1016,45 +968,5 @@ function BackupNotice(props: { readonly saveRequest: Accessor<number> }): JSX.El
         </aside>
       </Show>
     </>
-  )
-}
-
-/**
- * Opens the filters above the list, and puts them away again.
- *
- * Two states it shows apart: pressed while the filters are open, and filled in
- * with a mark beside it while the query narrows what they set — which matters
- * most once they are put away, since a report that is not all of the books
- * looks like one that is. Read off the query, so a date typed into the title
- * bar marks it as well.
- */
-function FilterButton(): JSX.Element {
-  const [query] = useQuery()
-  const reading = createReading(query)
-  const filtering = (): boolean => {
-    const read = reading()
-    return read !== undefined && narrowsByDate(read)
-  }
-  return (
-    <Button
-      variant="outline"
-      size="icon"
-      aria-pressed={filtersShown()}
-      aria-label={filtering() ? t("report.filtered") : t("report.filters")}
-      title={filtering() ? t("report.filtered") : t("report.filters")}
-      onClick={toggleFilters}
-      class="relative size-6"
-      classList={{
-        "bg-accent": filtersShown(),
-        "text-primary": filtering(),
-        "text-muted-foreground": !filtering(),
-      }}
-    >
-      {/* Left unsized, as the buttons beside it are: Button sizes any icon inside it. */}
-      <FunnelIcon class={filtering() ? "[&_svg]:fill-current" : ""} />
-      <Show when={filtering()}>
-        <span class="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-primary ring-2 ring-card" />
-      </Show>
-    </Button>
   )
 }

@@ -12,7 +12,7 @@ import { useMoves } from "~/core/address/moves"
 import { dock } from "~/core/dock"
 import { searchFor, useQuery } from "~/core/journal/query"
 import { inAccountQuery } from "~/core/journal/account-query"
-import { focusOf, focusedOn } from "~/core/journal/terms"
+import { focusOf, focusedOn, narrowsByDate } from "~/core/journal/terms"
 import { narrowed } from "~/core/reports/ask"
 import { createReading, readQuery } from "~/core/reports/reading"
 import { t } from "~/core/i18n"
@@ -23,6 +23,9 @@ import { getOrUndefined, matchResource } from "~/core/lib/monad"
 import { NeedsAJournal, Waiting } from "~/core/components/balance-report"
 import { TroubleNote } from "~/core/components/trouble-note"
 import { Button } from "~/core/components/ui/button"
+import { ReportFilters } from "~/core/components/report-filters"
+import { FunnelIcon } from "~/core/lib/ui/icons"
+import { filtersShown, toggleFilters } from "~/core/reports/filters"
 
 /**
  * One of the statements the books come to.
@@ -163,8 +166,14 @@ function Statements(): JSX.Element {
     <div class="report-printable flex flex-col gap-4">
       <div class="flex items-center justify-between gap-2">
         <h2 class="text-sm font-medium">{statement().name()}</h2>
-        <PrintButton />
+        <div class="flex items-center gap-2">
+          <FilterButton />
+          <PrintButton />
+        </div>
       </div>
+      <Show when={filtersShown()}>
+        <div class="report-print-action"><ReportFilters /></div>
+      </Show>
       <Show when={statement()} keyed>
         {(shown) => (
           <shown.Body
@@ -221,12 +230,19 @@ function ReportEditor(props: { readonly report?: SavedReport }): JSX.Element {
   }
   return (
     <div class="flex flex-col gap-4">
+      <Show when={editing() || props.report === undefined}>
+        <div class="flex justify-end">
+          <FilterButton />
+        </div>
+      </Show>
+      <Show when={filtersShown()}><ReportFilters /></Show>
       <Show when={editing() || props.report === undefined} fallback={
         <Show when={props.report}>
           {(saved) => (
             <div class="flex items-center justify-between gap-2">
               <h2 class="text-sm font-medium">{saved().name}</h2>
               <div class="flex items-center gap-2">
+                <FilterButton />
                 <PrintButton />
                 <div class="flex gap-2">
                   <Button size="sm" variant="outline" disabled={saving()} onClick={() => setEditing(true)}>{t("customReport.edit")}</Button>
@@ -284,6 +300,37 @@ const customReportHeader = (header: string): string =>
 
 function PrintButton(): JSX.Element {
   return <Button size="sm" variant="outline" class="report-print-action" onClick={() => window.print()}>{t("report.print")}</Button>
+}
+
+function FilterButton(): JSX.Element {
+  const [query] = useQuery()
+  const reading = createReading(query)
+  const filtering = (): boolean => {
+    const read = reading()
+    return read !== undefined && narrowsByDate(read)
+  }
+  const label = (): string => filtering() ? t("report.filtered") : t("report.filters")
+  return (
+    <Button
+      variant="outline"
+      size="icon"
+      aria-pressed={filtersShown()}
+      aria-label={label()}
+      title={label()}
+      onClick={toggleFilters}
+      class="relative size-8 report-print-action"
+      classList={{
+        "bg-accent": filtersShown(),
+        "text-primary": filtering(),
+        "text-muted-foreground": !filtering(),
+      }}
+    >
+      <FunnelIcon class={filtering() ? "[&_svg]:fill-current" : ""} />
+      <Show when={filtering()}>
+        <span class="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-primary ring-2 ring-card" />
+      </Show>
+    </Button>
+  )
 }
 
 const definitionHeadline = (trouble: DefinitionTrouble): string => {

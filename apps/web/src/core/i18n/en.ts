@@ -248,6 +248,7 @@ export const en = {
   },
   csvImport: {
     title: "Import CSV with hledger",
+    action: "Import",
     lead: "Read a CSV with its hledger rules. Nothing is written until you review and accept the generated entries.",
     chooseCsv: "Choose a CSV file",
     chooseRules: "Choose a rules file",
@@ -680,6 +681,7 @@ export const en = {
   compose: {
     title: "New entry",
     open: "New entry",
+    action: "New",
     close: "Close",
     date: "Date",
     payee: "Payee",

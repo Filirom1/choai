@@ -5,6 +5,7 @@ export const ja: Dictionary = {
   csvImport: {
     ...en.csvImport,
     title: "hledger で CSV をインポート",
+    action: "取込",
     lead: "CSV を hledger のルールで読み込みます。生成された取引を確認して承認するまで、帳簿には書き込みません。",
     chooseCsv: "CSV ファイルを選択",
     chooseRules: "rules ファイルを選択",
@@ -711,6 +712,7 @@ export const ja: Dictionary = {
   compose: {
     title: "新しい仕訳",
     open: "新しい仕訳",
+    action: "新規",
     close: "閉じる",
     date: "日付",
     payee: "支払い先",
