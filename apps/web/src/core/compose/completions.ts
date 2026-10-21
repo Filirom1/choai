@@ -10,6 +10,11 @@ export interface ComposeCompletions {
 const unique = (values: readonly string[]): readonly string[] =>
   [...new Set(values.filter((value) => value !== ""))]
 
+export const prioritiseSuggestions = (
+  preferred: readonly string[],
+  existing: readonly string[],
+): readonly string[] => unique([...preferred, ...existing])
+
 const uniqueTags = (tags: readonly Tag[]): readonly Tag[] =>
   [...new Map(tags.map((tag) => [JSON.stringify([tag.name, tag.value]), tag])).values()]
 

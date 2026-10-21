@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 
-import { composeCompletions, tagNamesFor, valuesForName } from "~/core/compose/completions"
+import { composeCompletions, prioritiseSuggestions, tagNamesFor, valuesForName } from "~/core/compose/completions"
 import type { Completions, Transaction } from "~/core/hledger/wire"
 import type { OfferedTag } from "~/edition/types"
 
@@ -47,4 +47,10 @@ test("entries still supply suggestions without the completions report", () => {
   expect(tagNamesFor([], suggestions.tags)).toEqual(["project", "receipt"])
   expect(valuesForName("project", [], suggestions.tags)).toEqual(["home:food"])
   expect(composeCompletions(undefined, [])).toEqual({ payees: [], tags: [] })
+})
+
+test("recognized text is suggested before existing values without duplicates", () => {
+  expect(prioritiseSuggestions(["Shop", "Receipt number", "Shop"], ["Shop", "Known"])).toEqual([
+    "Shop", "Receipt number", "Known",
+  ])
 })

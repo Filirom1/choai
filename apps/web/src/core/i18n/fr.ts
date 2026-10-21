@@ -461,6 +461,12 @@ const incompleteFr: Dictionary = {
   compose: {
     ...en.compose,
     document: "Justificatif",
+    documentOptional: "facultatif",
+    documentHint: "Joignez un justificatif pour retrouver son texte dans les suggestions, ou remplissez directement le formulaire.",
+    entryDetails: "Détails de l’écriture",
+    readText: "Extraire le texte de l’image",
+    readingText: "Extraction du texte de l’image…",
+    textSuggested: "Texte reconnu. Saisissez dans un champ pour voir les suggestions.",
     chooseDocument: "Fichier",
     takePhoto: "Photo",
     chooseExistingDocument: "Déjà importé",

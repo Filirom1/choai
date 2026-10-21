@@ -15,7 +15,9 @@ import {
   editText,
   entryDocumentFile,
   entryDocumentPath,
+  entryRecognizedText,
   entryShown,
+  rememberEntryDocumentText,
   save,
   saving,
   savingTrouble,
@@ -47,7 +49,22 @@ export function ComposePanel(): JSX.Element {
 
   return (
     <div class="flex flex-col gap-3 p-3">
-      <Show when={isText()} fallback={<EntryForm draft={draftOf} onEdit={editDraft} hiddenEntryTags={[documents().tag]}>
+      <DocumentField
+        path={entryDocumentPath()}
+        file={entryDocumentFile()}
+        disabled={saving()}
+        onSelect={chooseEntryDocument}
+        onRecognisedText={rememberEntryDocumentText}
+      />
+
+      <h2 class="text-sm font-medium">{t("compose.entryDetails")}</h2>
+
+      <Show when={isText()} fallback={<EntryForm
+        draft={draftOf}
+        onEdit={editDraft}
+        hiddenEntryTags={[documents().tag]}
+        recognizedText={entryRecognizedText()}
+      >
         <Button variant="ghost" size="sm" class="self-start px-1" onClick={showAsText}>
           {t("compose.asText")}
         </Button>
@@ -60,15 +77,15 @@ export function ComposePanel(): JSX.Element {
         />
       </Show>
 
-      <DocumentField path={entryDocumentPath()} file={entryDocumentFile()} disabled={saving()} onSelect={chooseEntryDocument} />
-
       <Show when={getOrUndefined(savingTrouble())}>
         {(trouble) => <TroubleNote trouble={trouble()} />}
       </Show>
 
-      <Button disabled={!writable() || saving()} onClick={() => void save()}>
-        {t("compose.add")}
-      </Button>
+      <div class="sticky bottom-0 z-10 -mx-3 -mb-3 border-t bg-background/95 p-3 backdrop-blur">
+        <Button class="w-full" disabled={!writable() || saving()} onClick={() => void save()}>
+          {t("compose.add")}
+        </Button>
+      </div>
     </div>
   )
 }

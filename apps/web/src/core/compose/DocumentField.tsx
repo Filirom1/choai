@@ -1,4 +1,4 @@
-import { For, Show, createMemo, createSignal, type JSX } from "solid-js"
+import { For, Show, createEffect, createMemo, createSignal, type JSX } from "solid-js"
 
 import { Button } from "~/core/components/ui/button"
 import { TextField, TextFieldInput } from "~/core/components/ui/text-field"
@@ -7,6 +7,8 @@ import { AttachmentLink } from "~/core/journal/AttachmentLink"
 import { DocumentLink } from "~/core/journal/DocumentLink"
 import { getOrUndefined } from "~/core/lib/monad"
 import { compactImage } from "~/core/lib/image"
+import { readPicture, type Trouble as OcrTrouble } from "~/core/lib/ocr/client"
+import { PaperclipIcon } from "~/core/lib/ui/icons"
 import { journal } from "~/core/journal/store"
 import { documents } from "~/core/journal/book-settings"
 import { t } from "~/core/i18n"
@@ -16,12 +18,15 @@ export function DocumentField(props: {
   readonly file: File | undefined
   readonly disabled?: boolean
   readonly onSelect: (selection: DocumentSelection | undefined) => void
+  readonly onRecognisedText?: (text: readonly string[]) => void
 }): JSX.Element {
   let picker: HTMLInputElement | undefined
   let camera: HTMLInputElement | undefined
   const [choosingExisting, setChoosingExisting] = createSignal(false)
   const [search, setSearch] = createSignal("")
   const [visibleCount, setVisibleCount] = createSignal(20)
+  const [recognition, setRecognition] = createSignal<Recognition>({ kind: "idle" })
+  const [recognitionAttempt, setRecognitionAttempt] = createSignal(0)
   const existingDocuments = () => {
     const folder = `${documents().folder}/`
     return getOrUndefined(journal())?.source.attachments.filter(({ path }) => path.startsWith(folder)) ?? []
@@ -34,13 +39,60 @@ export function DocumentField(props: {
   })
   const visibleDocuments = createMemo(() => matchingDocuments().slice(0, visibleCount()))
 
+  createEffect(() => {
+    if (props.file !== undefined) return
+    setRecognitionAttempt((attempt) => attempt + 1)
+    setRecognition({ kind: "idle" })
+    props.onRecognisedText?.([])
+  })
+
+  const select = (selection: DocumentSelection | undefined): void => {
+    setRecognitionAttempt((attempt) => attempt + 1)
+    setRecognition({ kind: "idle" })
+    props.onRecognisedText?.([])
+    props.onSelect(selection)
+  }
+
+  const readText = async (): Promise<void> => {
+    const file = props.file
+    if (file === undefined) return
+    const attempt = recognitionAttempt() + 1
+    setRecognitionAttempt(attempt)
+    setRecognition({ kind: "reading" })
+    const result = await readPicture(file)
+    if (recognitionAttempt() !== attempt) return
+    if (!result.ok) {
+      props.onRecognisedText?.([])
+      setRecognition({ kind: "failed", trouble: result.error })
+      return
+    }
+    const text = [...new Set(
+      result.value.rows
+        .flatMap((row) => row.map((line) => line.text.trim()))
+        .filter((line) => line !== ""),
+    )]
+    props.onRecognisedText?.(text)
+    setRecognition(text.length > 0 ? { kind: "read" } : { kind: "blank" })
+  }
+
   return (
-    <section class="flex flex-col gap-2 rounded-md border p-2">
-      <span class="text-xs font-medium text-muted-foreground">{t("compose.document")}</span>
+    <section class="flex flex-col gap-3 rounded-lg border border-dashed bg-muted/20 p-3">
+      <div class="flex items-start gap-3">
+        <span class="flex size-9 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground">
+          <PaperclipIcon class="size-4" />
+        </span>
+        <div class="flex min-w-0 flex-col gap-1">
+          <div class="flex flex-wrap items-baseline gap-x-2">
+            <h2 class="text-sm font-medium">{t("compose.document")}</h2>
+            <span class="text-xs text-muted-foreground">{t("compose.documentOptional")}</span>
+          </div>
+          <p class="text-xs text-muted-foreground">{t("compose.documentHint")}</p>
+        </div>
+      </div>
       <Show when={!props.file && props.path}>
         {(path) => <DocumentLink path={path()} />}
       </Show>
-      <Show when={props.file} fallback={<Show when={!props.path}><span class="text-xs text-muted-foreground">{t("compose.noDocument")}</span></Show>}>
+      <Show when={props.file}>
         {(file) => (
           <div class="flex flex-col gap-1">
             <span class="truncate text-xs">{t("compose.pendingDocument", { name: file().name })}</span>
@@ -69,7 +121,7 @@ export function DocumentField(props: {
         onChange={(event) => {
           const file = event.currentTarget.files?.[0]
           event.currentTarget.value = ""
-          if (file !== undefined) void compactImage(file).then((compact) => props.onSelect({ kind: "file", file: compact }))
+          if (file !== undefined) void compactImage(file).then((compact) => select({ kind: "file", file: compact }))
         }}
       />
       <input
@@ -82,16 +134,21 @@ export function DocumentField(props: {
         onChange={(event) => {
           const file = event.currentTarget.files?.[0]
           event.currentTarget.value = ""
-          if (file !== undefined) void compactImage(file).then((compact) => props.onSelect({ kind: "file", file: compact }))
+          if (file !== undefined) void compactImage(file).then((compact) => select({ kind: "file", file: compact }))
         }}
       />
       <div class="flex flex-wrap gap-2">
-        <Button variant="outline" size="sm" disabled={props.disabled} onClick={() => picker?.click()}>
+        <Button size="sm" disabled={props.disabled} onClick={() => picker?.click()}>
           {props.path || props.file ? t("compose.replaceDocument") : t("compose.chooseDocument")}
         </Button>
         <Button variant="outline" size="sm" disabled={props.disabled} onClick={() => camera?.click()}>
           {t("compose.takePhoto")}
         </Button>
+        <Show when={props.file}>
+          <Button variant="outline" size="sm" disabled={props.disabled || recognition().kind === "reading"} onClick={() => void readText()}>
+            {t("compose.readText")}
+          </Button>
+        </Show>
         <Show when={existingDocuments().length > 0}>
           <Button
             variant="outline"
@@ -103,11 +160,16 @@ export function DocumentField(props: {
           </Button>
         </Show>
         <Show when={props.path || props.file}>
-          <Button variant="ghost" size="sm" disabled={props.disabled} onClick={() => props.onSelect(undefined)}>
+          <Button variant="ghost" size="sm" disabled={props.disabled} onClick={() => select(undefined)}>
             {t("compose.removeDocument")}
           </Button>
         </Show>
       </div>
+      <Show when={recognition().kind !== "idle"}>
+        <p class="text-xs text-muted-foreground" aria-live="polite">
+          {recognitionMessage(recognition())}
+        </p>
+      </Show>
       <Show when={choosingExisting()}>
         <div class="flex max-h-80 flex-col gap-2 overflow-y-auto rounded-md border p-2">
           <TextField>
@@ -139,7 +201,7 @@ export function DocumentField(props: {
                   size="sm"
                   disabled={props.disabled}
                   onClick={() => {
-                    props.onSelect({ kind: "existing", path: attachment.path })
+                    select({ kind: "existing", path: attachment.path })
                     setChoosingExisting(false)
                   }}
                 >
@@ -162,6 +224,28 @@ export function DocumentField(props: {
       </Show>
     </section>
   )
+}
+
+type Recognition =
+  | { readonly kind: "idle" }
+  | { readonly kind: "reading" }
+  | { readonly kind: "read" }
+  | { readonly kind: "blank" }
+  | { readonly kind: "failed"; readonly trouble: OcrTrouble }
+
+const recognitionMessage = (recognition: Recognition): string => {
+  switch (recognition.kind) {
+    case "idle":
+      return ""
+    case "reading":
+      return t("compose.readingText")
+    case "read":
+      return t("compose.textSuggested")
+    case "blank":
+      return t("receipts.failed.blank")
+    case "failed":
+      return t(`receipts.failed.${recognition.trouble.kind}`)
+  }
 }
 
 const searchKey = (value: string): string =>

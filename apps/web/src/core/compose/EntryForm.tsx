@@ -6,7 +6,7 @@ import { getOrUndefined } from "~/core/lib/monad"
 import { Button } from "~/core/components/ui/button"
 import { TextField, TextFieldInput } from "~/core/components/ui/text-field"
 import { t } from "~/core/i18n"
-import { composeCompletions, tagNamesFor, valuesForName } from "./completions"
+import { composeCompletions, prioritiseSuggestions, tagNamesFor, valuesForName } from "./completions"
 import { draftToJournal, hasBlankAmount, type Draft, type DraftEdit, type Tag } from "./draft"
 import { EXAMPLE_FIGURE, amountExample } from "./hint"
 import { Ghost, Labelled, OFFERED, StatusPicker, Tags, namesListOf, offeredOn, roomForSymbol, showPicker, valuesListOf } from "./FormParts"
@@ -24,14 +24,27 @@ export function EntryForm(props: {
   onEdit: (edit: DraftEdit) => void
   /** Entry tags managed by a dedicated field rather than the generic tag list. */
   hiddenEntryTags?: readonly string[]
+  /** Text read from the attached image, offered before suggestions from the book. */
+  recognizedText?: readonly string[]
   /** The text of the entry as the form would write it, shown underneath. */
   children?: JSX.Element
 }): JSX.Element {
   const listPrefix = `entry-form-${crypto.randomUUID()}-`
   const suggestions = useSuggestions()
-  const accounts = (): readonly string[] => getOrUndefined(journal())?.summary.accounts ?? []
-  const payees = (): readonly string[] => suggestions()?.payees ?? []
+  const recognizedText = (): readonly string[] => props.recognizedText ?? []
+  const accounts = (): readonly string[] =>
+    prioritiseSuggestions(recognizedText(), getOrUndefined(journal())?.summary.accounts ?? [])
+  const payees = (): readonly string[] =>
+    prioritiseSuggestions(recognizedText(), suggestions()?.payees ?? [])
   const knownTags = (): readonly Tag[] => suggestions()?.tags ?? []
+  const tagNames = (): readonly string[] => prioritiseSuggestions(
+    [
+      ...tagNamesFor(OFFERED, knownTags()),
+      ...props.draft().tags.map((tag) => tag.name),
+      ...props.draft().postings.flatMap((posting) => posting.tags.map((tag) => tag.name)),
+    ],
+    [],
+  )
   /**
    * The example in the empty box.
    *
@@ -69,8 +82,12 @@ export function EntryForm(props: {
           type="text"
           class="h-8"
           placeholder={t("compose.codeHint")}
+          list={`${listPrefix}recognized-text`}
           value={props.draft().code ?? ""}
-          onInput={(event) => props.onEdit({ kind: "fields", change: { code: event.currentTarget.value } })}
+          onInput={(event) => {
+            props.onEdit({ kind: "fields", change: { code: event.currentTarget.value } })
+            showPicker(event.currentTarget)
+          }}
         />
       </Labelled>
 
@@ -95,8 +112,12 @@ export function EntryForm(props: {
           type="text"
           class="h-8"
           placeholder={t("compose.noteHint")}
+          list={`${listPrefix}recognized-text`}
           value={props.draft().note}
-          onInput={(event) => props.onEdit({ kind: "fields", change: { note: event.currentTarget.value } })}
+          onInput={(event) => {
+            props.onEdit({ kind: "fields", change: { note: event.currentTarget.value } })
+            showPicker(event.currentTarget)
+          }}
         />
       </Labelled>
 
@@ -118,6 +139,9 @@ export function EntryForm(props: {
       <datalist id={`${listPrefix}known-payees`}>
         <For each={payees()}>{(payee) => <option value={payee} />}</For>
       </datalist>
+      <datalist id={`${listPrefix}recognized-text`}>
+        <For each={recognizedText()}>{(text) => <option value={text} />}</For>
+      </datalist>
       <For each={["entry", "posting"] as const}>
         {(on) => (
           <datalist id={namesListOf(on, listPrefix)}>
@@ -125,10 +149,12 @@ export function EntryForm(props: {
           </datalist>
         )}
       </For>
-      <For each={tagNamesFor(OFFERED, knownTags())}>
+      <For each={tagNames()}>
         {(name) => (
           <datalist id={valuesListOf(name, listPrefix)}>
-            <For each={valuesForName(name, OFFERED, knownTags())}>{(value) => <option value={value} />}</For>
+            <For each={prioritiseSuggestions(recognizedText(), valuesForName(name, OFFERED, knownTags()))}>
+              {(value) => <option value={value} />}
+            </For>
           </datalist>
         )}
       </For>

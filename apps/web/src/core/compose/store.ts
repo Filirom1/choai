@@ -27,9 +27,12 @@ const [trouble, setTrouble] = createSignal<Option<Trouble>>(None)
 const [saving, setSaving] = createSignal(false)
 const [documentFile, setDocumentFile] = createSignal<File | undefined>(undefined)
 const [documentPath, setDocumentPath] = createSignal<string | undefined>(undefined)
+const [recognizedText, setRecognizedText] = createSignal<readonly string[]>([])
 
 export const entryDocumentFile: Accessor<File | undefined> = documentFile
 export const entryDocumentPath: Accessor<string | undefined> = documentPath
+export const entryRecognizedText: Accessor<readonly string[]> = recognizedText
+export const rememberEntryDocumentText = setRecognizedText
 export const chooseEntryDocument = (selection: DocumentSelection | undefined): void => {
   setDocumentFile(selection?.kind === "file" ? selection.file : undefined)
   setDocumentPath(selection?.kind === "existing" ? selection.path : undefined)
@@ -86,6 +89,7 @@ export const save = async (): Promise<boolean> => {
   setSurface(asForm(emptyDraft(date)))
   setDocumentFile(undefined)
   setDocumentPath(undefined)
+  setRecognizedText([])
   return true
 }
 
@@ -94,5 +98,6 @@ export const clearDraft = (): void => {
   setSurface(asForm(emptyDraft(todayISO())))
   setDocumentFile(undefined)
   setDocumentPath(undefined)
+  setRecognizedText([])
   setTrouble(None)
 }
