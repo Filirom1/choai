@@ -1,6 +1,6 @@
 import { describe, expect, spyOn, test } from "bun:test"
 
-import { createBinary, getRevisionContent, listFilesInFolder, listRevisions, listSharedWithMe, listStarred, multipartBody, pinRevision, trashFile, updateBlob, updateFile } from "../src/core/google-drive/api"
+import { createBinary, deleteRevision, getFileContent, getRevisionContent, listFilesInFolder, listRevisions, listSharedWithMe, listStarred, multipartBody, pinRevision, trashFile, updateBlob, updateFile } from "../src/core/google-drive/api"
 import { changedFromAgreement, type DriveAgreement } from "../src/core/google-drive/kept"
 import { fileName, parentPath, relativePath, safePath } from "../src/core/google-drive/paths"
 
@@ -91,18 +91,52 @@ describe("Google Drive request bodies", () => {
   test("lists revisions and reads an older revision's text", async () => {
     const fetch = spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response(JSON.stringify({ revisions: [{ id: "rev-1", modifiedTime: "2026-02-01T00:00:00Z" }] })))
-      .mockResolvedValueOnce(new Response("2026-02-01 Opening\n"))
+      .mockResolvedValueOnce(new Response(Uint8Array.from([
+        68, 97, 116, 101, 59, 68, 233, 98, 105, 116, 59, 76, 105, 98, 101, 108, 108, 233,
+      ])))
     const revisions = await listRevisions("token", "drive-file")
     const content = await getRevisionContent("token", "drive-file", "rev-1")
     const [listUrl, listInit] = fetch.mock.calls[0] ?? []
     const [contentUrl, contentInit] = fetch.mock.calls[1] ?? []
     expect(revisions).toMatchObject({ ok: true, value: [{ id: "rev-1" }] })
-    expect(content).toEqual({ ok: true, value: "2026-02-01 Opening\n" })
+    expect(content).toEqual({ ok: true, value: "Date;Débit;Libellé" })
     expect(String(listUrl)).toContain("/files/drive-file/revisions?")
     expect(new Headers(listInit?.headers).get("Authorization")).toBe("Bearer token")
     expect(String(contentUrl)).toContain("/files/drive-file/revisions/rev-1?alt=media")
     expect(new Headers(contentInit?.headers).get("Authorization")).toBe("Bearer token")
     fetch.mockRestore()
+  })
+
+  test("reads Windows-1252 CSV text from the original bytes", async () => {
+    const fetch = spyOn(globalThis, "fetch").mockResolvedValue(new Response(Uint8Array.from([
+      68, 97, 116, 101, 59, 68, 233, 98, 105, 116, 59, 76, 105, 98, 101, 108, 108, 233,
+    ])))
+    const content = await getFileContent("token", "drive-file")
+    expect(content).toEqual({ ok: true, value: "Date;Débit;Libellé" })
+    fetch.mockRestore()
+  })
+
+  test("deletes an older revision even when kept, but protects the current one", async () => {
+    const fetch = spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 204 }))
+    try {
+      const result = await deleteRevision("token", "drive-file", { id: "older" }, "current")
+      const [input, init] = fetch.mock.calls[0] ?? []
+      expect(result).toEqual({ ok: true, value: undefined })
+      expect(String(input)).toContain("/files/drive-file/revisions/older")
+      expect(init?.method).toBe("DELETE")
+      expect(new Headers(init?.headers).get("Authorization")).toContain("Bearer")
+      expect(await deleteRevision("token", "drive-file", { id: "kept", keepForever: true }, "current")).toEqual({
+        ok: true,
+        value: undefined,
+      })
+      expect(await deleteRevision("token", "drive-file", { id: "current" }, "current")).toEqual({
+        ok: false,
+        error: { kind: "protected-revision" },
+      })
+      expect(fetch).toHaveBeenCalledTimes(2)
+    } finally {
+      fetch.mockRestore()
+    }
   })
 
   test("pins a replaced revision and trashes deletions reversibly", async () => {

@@ -13,6 +13,11 @@ import { dock } from "~/core/dock"
 import { selectCsv } from "~/core/statement/import-selection"
 import { bookSettings } from "~/core/journal/book-settings"
 import { csvPathForRules } from "~/core/statement/hledger-import"
+import { accessToken, clientId, clientIdNow, keepClientId, loadIdentity } from "~/core/google-drive/index"
+import { isGoogleDriveRemote } from "~/core/journal/remote"
+import { syntaxForSource } from "~/core/journal/source-syntax"
+import { JournalTextEditor } from "~/core/components/journal-text-editor"
+import { CsvTextViewer } from "~/core/components/csv-text-viewer"
 
 /**
  * The journal as text, editable.
@@ -43,14 +48,45 @@ function Editor(props: { open: OpenJournal }): JSX.Element {
   const path = (): string => fileShown(location.hash, props.open)
   const [trouble, setTrouble] = createSignal<Trouble | undefined>(undefined)
   const [saving, setSaving] = createSignal(false)
+  const [csvMode, setCsvMode] = createSignal<"table" | "text">("table")
+  const [attachmentAttempt, setAttachmentAttempt] = createSignal(0)
+  const [connectionFailure, setConnectionFailure] = createSignal<"identity" | "authorization" | undefined>()
+  const [connecting, setConnecting] = createSignal(false)
 
   const attachment = (): OpenJournal["source"]["attachments"][number] | undefined =>
     props.open.source.attachments.find((file) => file.path === path())
   const isAttachment = (): boolean => attachment() !== undefined
+  const syntax = (): ReturnType<typeof syntaxForSource> => syntaxForSource(path())
+  const isCsv = (): boolean => path().toLowerCase().endsWith(".csv")
+  createEffect(() => {
+    path()
+    setCsvMode("table")
+  })
   const [blob] = createResource(
-    () => (isAttachment() ? path() : undefined),
-    (file) => loadAttachment(props.open.bookId, file),
+    () => (isAttachment() ? { path: path(), attempt: attachmentAttempt() } : undefined),
+    ({ path: file }) => loadAttachment(props.open.bookId, file),
   )
+  const driveAttachment = (): boolean => isAttachment() && isGoogleDriveRemote(props.open.remote)
+  const connectDrive = async (): Promise<void> => {
+    setConnecting(true)
+    setConnectionFailure(undefined)
+    const identity = await loadIdentity()
+    if (!identity.ok) {
+      setConnectionFailure("identity")
+      setConnecting(false)
+      return
+    }
+    const id = (await clientId()) ?? clientIdNow()
+    const authorized = await accessToken(id)
+    if (!authorized.ok) {
+      setConnectionFailure("authorization")
+      setConnecting(false)
+      return
+    }
+    await keepClientId(id)
+    setAttachmentAttempt((attempt) => attempt + 1)
+    setConnecting(false)
+  }
   const [previewUrl, setPreviewUrl] = createSignal<string | undefined>(undefined)
   createEffect(() => {
     const file = blob()
@@ -112,7 +148,23 @@ function Editor(props: { open: OpenJournal }): JSX.Element {
           and the page scrolls. */}
       <Show when={!isAttachment()} fallback={
         <Show when={blob.loading} fallback={
-          <Show when={blob()} fallback={<p class="text-sm text-muted-foreground">{t("source.attachmentFailed")}</p>}>
+          <Show when={blob()} fallback={
+            <div class="flex flex-col items-start gap-2">
+              <p class="text-sm text-muted-foreground">
+                {driveAttachment() ? t("source.attachmentDriveConnect") : t("source.attachmentFailed")}
+              </p>
+              <Show when={driveAttachment()}>
+                <Button size="sm" variant="outline" disabled={connecting()} onClick={() => void connectDrive()}>
+                  {connecting() ? t("gdrive.working") : t("gdrive.connect")}
+                </Button>
+                <Show when={connectionFailure()}>
+                  {(failure) => <p role="alert" class="text-sm text-error-foreground">
+                    {failure() === "identity" ? t("gdrive.oauthUnavailable") : t("gdrive.notConnected")}
+                  </p>}
+                </Show>
+              </Show>
+            </div>
+          }>
             <Show when={attachment()?.type.startsWith("image/")} fallback={
               <iframe src={previewUrl()} title={path()} class="min-h-[36rem] w-full flex-1 rounded-md border border-border" />
             }>
@@ -121,14 +173,36 @@ function Editor(props: { open: OpenJournal }): JSX.Element {
           </Show>
         }><p class="text-sm text-muted-foreground">{t("source.loadingAttachment")}</p></Show>
       }>
-        <textarea
-          class="min-h-[24rem] w-full flex-1 resize-none rounded-md border border-input bg-background p-3 font-mono text-xs leading-relaxed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-          spellcheck={false}
-          autocapitalize="off"
-          autocorrect="off"
-          value={text()}
-          onInput={(event) => holdText(path(), event.currentTarget.value)}
-        />
+        <Show when={isCsv()} fallback={
+          <Show when={syntax()} fallback={
+            <textarea
+              class="min-h-[24rem] w-full flex-1 resize-none rounded-md border border-input bg-background p-3 font-mono text-xs leading-relaxed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              spellcheck={false}
+              autocapitalize="off"
+              autocorrect="off"
+              value={text()}
+              onInput={(event) => holdText(path(), event.currentTarget.value)}
+            />
+          }>
+            {(mode) => (
+              <JournalTextEditor
+                mode={mode()}
+                value={text()}
+                onChange={(written) => holdText(path(), written)}
+                label={path()}
+                class="min-h-[24rem] flex-1"
+              />
+            )}
+          </Show>
+        }>
+          <CsvTextViewer
+            value={text()}
+            mode={csvMode()}
+            onMode={setCsvMode}
+            onChange={(written) => holdText(path(), written)}
+            label={path()}
+          />
+        </Show>
       </Show>
 
       <Show when={!isAttachment()}>

@@ -409,6 +409,7 @@ const snagWords = (snag: Snag): string => {
         case "unauthorised": return t("gdrive.unauthorised")
         case "no-such-file": return t("gdrive.noSuchFile")
         case "conflict": return t("gdrive.conflict", { path: "" })
+        case "protected-revision": return t("gdrive.revisionProtected")
         case "refused": return t("gdrive.refused", { status: snag.failure.status })
       }
   }

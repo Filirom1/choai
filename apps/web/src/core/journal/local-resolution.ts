@@ -1,6 +1,6 @@
 import { Err, Ok, getOrUndefined, type Result } from "~/core/lib/monad"
 import { readText } from "~/core/lib/text"
-import { automaticAdditions, captureFile, sameVersions, type CapturedVersion, type FileSnapshot, type ResolutionChoice } from "~/core/sync/conflict"
+import { captureFile, sameVersions, type CapturedVersion, type FileSnapshot, type ResolutionChoice } from "~/core/sync/conflict"
 import { companionsIn } from "~/core/journal/companions"
 import { hledgerLatestPaths, isHiddenPath, isHledgerLatestPath } from "~/core/journal/hidden"
 import { includedBy } from "~/core/journal/layout"
@@ -16,6 +16,10 @@ export type LocalResolutionFailure =
   | { readonly at: "unsupported"; readonly path: string }
   | { readonly at: "hledger"; readonly trouble: Trouble }
   | { readonly at: "local-kept"; readonly path: string; readonly failure: LocalFailure }
+
+export type DiscardFailure =
+  | { readonly at: "stale"; readonly path: string }
+  | { readonly at: "hledger"; readonly trouble: Trouble }
 
 const digest = async (blob: Blob): Promise<string> => {
   const bytes = await crypto.subtle.digest("SHA-256", await blob.arrayBuffer())
@@ -134,8 +138,19 @@ export const inspectLocalResolution = async (): Promise<Result<readonly FileSnap
   const failure = snapshots.find((snapshot) => !snapshot.ok)
   if (failure !== undefined && !failure.ok) return failure
   const unresolved = snapshots.flatMap((snapshot) => snapshot.ok && pending(snapshot.value) ? [snapshot.value] : [])
-  const adopted = await adoptLocalAdditions(automaticAdditions(unresolved))
-  return adopted.ok ? Ok(unresolved.filter(({ state }) => state !== "added-destination")) : adopted
+  return Ok(unresolved)
+}
+
+export const discardLocalChange = async (
+  path: string,
+  expectedText: string,
+  previousText: string,
+  isNew: boolean,
+): Promise<Result<void, DiscardFailure>> => {
+  const open = getOrUndefined(journal())
+  if (open?.source.files[path] !== expectedText) return Err({ at: "stale", path })
+  const discarded = isNew ? await removeFile(path) : await rewriteFile(path, previousText)
+  return discarded.ok ? Ok(undefined) : Err({ at: "hledger", trouble: discarded.error })
 }
 
 const recapture = async (
@@ -203,13 +218,6 @@ export const resolveLocalResolution = async (
   return snapshot.role === "accounting"
     ? resolveLocalText(open, snapshot, choice)
     : resolveLocalBinary(open, snapshot, choice)
-}
-
-const adoptLocalAdditions = async (snapshots: readonly FileSnapshot[]): Promise<Result<void, LocalResolutionFailure>> => {
-  const [snapshot, ...later] = snapshots
-  if (snapshot === undefined) return Ok(undefined)
-  const adopted = await resolveLocalResolution(snapshot, { take: "destination" })
-  return adopted.ok ? adoptLocalAdditions(later) : adopted
 }
 
 const resolveLocalText = async (

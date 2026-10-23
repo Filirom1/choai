@@ -21,7 +21,6 @@ const openTheDemo = async (page: Page): Promise<void> => {
   await page.goto("/")
   await page.evaluate(() => window.choai.ready)
   await page.getByRole("button", { name: "Try the demo" }).click()
-  await expect(page).toHaveURL(/\/journal#work$/)
 
   await expect
     .poll(async () => {

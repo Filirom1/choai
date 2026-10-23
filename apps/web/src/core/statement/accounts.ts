@@ -1,6 +1,7 @@
 import { decide, type Choice, type Unasked } from "~/core/ai/jev/clients"
 import { ask } from "~/core/hledger/client"
 import type { AccountType } from "~/core/hledger/wire"
+import { payeeAndNote } from "~/core/journal/description"
 import { Ok, type Result } from "~/core/lib/monad"
 import type { ColumnRole } from "./columns"
 import { WHOLE_FILE, kindOf } from "./rules"
@@ -125,7 +126,7 @@ const seenBefore = async (payee: string, own: readonly string[], leaves: readonl
   const similar = await ask({ kind: "similar", description: payee, limit: 1 })
   if (!similar.ok) return undefined
   const [entry] = similar.value
-  if (entry === undefined || entry.tdescription.split("|")[0]?.trim() !== payee) return undefined
+  if (entry === undefined || payeeAndNote(entry.tdescription).payee !== payee) return undefined
   const other = entry.tpostings.find((posting) => !own.includes(posting.paccount))
   return other === undefined || !leaves.includes(other.paccount)
     ? undefined

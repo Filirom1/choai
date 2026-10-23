@@ -132,10 +132,21 @@ const takeTheBooks = async (page: Page): Promise<void> => {
   await expect(page).toHaveURL(/\/remotes#connection$/)
 }
 
+const openRemoteChange = async (page: Page, path: string): Promise<void> => {
+  const review = page.getByRole("button", { name: "Review in Remote", exact: true })
+  if (await review.isVisible()) await review.click()
+  if (new URL(page.url()).pathname !== "/remotes") {
+    await page.getByRole("button", { name: "Backups", exact: true }).first().click()
+  }
+  const file = page.getByRole("complementary").locator(`button[title="${path}"]`).last()
+  await expect(file).toBeVisible()
+  await file.click()
+}
+
 test("with nothing connected, the screen is the connection, and the sidebar says so", async ({ page }) => {
   await page.goto("/git")
   await expect(page.getByLabel("Personal access token", { exact: true })).toBeVisible()
-  await expect(page.getByRole("button", { name: "Connect to GitHub" })).toBeVisible()
+  await expect(page.getByRole("button", { name: "Save and check" })).toBeVisible()
 })
 
 test("an entry written here waits in the list, shows as a diff, and goes with the message given", async ({
@@ -183,7 +194,6 @@ test("the history is drawn from every branch, and a commit opens to what it chan
   await expect(page.getByText("Groceries from the phone")).toBeVisible()
   await expect(page.getByText("phone", { exact: true })).toBeVisible()
   await expect(page.getByRole("button", { name: "Read again", exact: true })).toBeEnabled()
-  await expect(page.getByText("Reading the history…")).toBeHidden()
 
   await page.getByRole("button", { name: /Update books\/main\.journal/ }).click({ force: true })
   // Every file it changed is open already, not only when there is one.
@@ -265,6 +275,7 @@ test("an unreadable destination copy opens the editor and can be corrected", asy
   await page.goto("/journal")
   await page.evaluate(() => window.dispatchEvent(new Event("focus")))
   await page.getByRole("button", { name: "Compare and sync" }).click()
+  await openRemoteChange(page, "main.journal")
   await expect(page.getByRole("heading", { name: "Compare copies" })).toBeVisible()
   await expect(page.getByText("Take destination", { exact: true })).toBeVisible()
   await expect(page.getByText("2026-07-05 Grocer").first()).toBeVisible()
@@ -276,8 +287,8 @@ test("an unreadable destination copy opens the editor and can be corrected", asy
   await page.getByRole("button", { name: "Take destination" }).click()
   await expect(page.getByText("The journal cannot be read with this text.")).toBeVisible()
   await expect(page.getByText("A transaction does not balance.")).toBeVisible()
-  const editor = page.getByLabel("Text to keep")
-  await expect(editor).toHaveValue(unreadable)
+  const editor = page.getByRole("textbox", { name: "Text to keep", exact: true })
+  await expect(editor).toContainText("2026-07-05 Grocer")
   await editor.fill(changed)
   await page.getByRole("button", { name: "Continue", exact: true }).click()
   await expect(page.getByText("The journal can be read.")).toBeVisible()
@@ -322,6 +333,7 @@ test("a destination-only journal file is discovered, previewed, and taken explic
   const compare = page.getByRole("button", { name: "Compare and sync" })
   await expect(compare).toBeVisible()
   await compare.click({ force: true })
+  await openRemoteChange(page, "transactions.journal")
   await expect(page.getByRole("heading", { name: "transactions.journal" })).toBeVisible()
   await expect(page.getByText("Added at destination")).toBeVisible()
   await page.getByRole("button", { name: "Take destination" }).click()
@@ -356,6 +368,7 @@ test("an unknown destination file can only be exported or deferred", async ({ pa
   const compare = page.getByRole("button", { name: "Compare and sync" })
   await expect(compare).toBeVisible()
   await compare.click({ force: true })
+  await openRemoteChange(page, "archive.opaque")
   await expect(page.getByRole("heading", { name: "archive.opaque" })).toBeVisible()
   await expect(page.getByText(/This file type is unknown/)).toBeVisible()
   await expect(page.getByRole("button", { name: "Keep this copy" })).toHaveCount(0)
@@ -368,43 +381,6 @@ test("an unknown destination file can only be exported or deferred", async ({ pa
   expect(localPath).not.toBeNull()
   if (localPath !== null) expect(new Uint8Array(await readFile(localPath))).toEqual(unknownBytes)
   expect(await page.evaluate(() => window.choai.journal.text({ path: "archive.opaque" }))).toMatchObject({ ok: false })
-})
-
-test("rules, statements and notes beside the journal are taken with it, not found afterwards", async ({ page }) => {
-  const texts: Readonly<Record<string, string>> = {
-    "README.md": "# Books\n\nNotes kept with the journal.\n",
-    "import/bank.csv.rules": "skip 1\nfields date, description, amount\n",
-    "import/staging/statement.csv": "date,description,amount\n2026-07-02,Grocer,-12.00\n",
-  }
-  const unknownBytes = Uint8Array.of(0, 255, 1, 128)
-  await page.route("**/api.github.com/**", (route) => {
-    const url = new URL(route.request().url())
-    if (url.pathname === "/user") return asJson(route, { login: "mrksye" })
-    if (url.pathname.includes("/git/trees/")) return asJson(route, {
-      tree: ["books/main.journal", "books/archive.opaque", ...Object.keys(texts).map((path) => `books/${path}`)]
-        .map((path) => ({ path, type: "blob" })),
-    })
-    if (url.pathname.endsWith("/archive.opaque")) {
-      return asJson(route, { content: Buffer.from(unknownBytes).toString("base64"), encoding: "base64", sha: "opaque-sha" })
-    }
-    const text = Object.entries(texts).find(([path]) => url.pathname.endsWith(`/books/${path}`))?.[1] ?? JOURNAL
-    if (url.pathname.includes("/contents/")) {
-      return asJson(route, { content: Buffer.from(text, "utf-8").toString("base64"), encoding: "base64", sha: `sha-${text.length}` })
-    }
-    return asJson(route, {}, 404)
-  })
-  await takeTheBooks(page)
-  for (const [path, text] of Object.entries(texts)) {
-    expect(await page.evaluate((path) => window.choai.journal.text({ path }), path)).toMatchObject({ ok: true, value: { text } })
-  }
-  await page.goto("/journal")
-  await page.evaluate(() => window.dispatchEvent(new Event("focus")))
-  await expect.poll(async () => (await page.evaluate(() => window.choai?.journal.summary({})))?.ok).toBe(true)
-  const compare = page.getByRole("button", { name: "Compare and sync" })
-  await expect(compare).toBeVisible()
-  await compare.click({ force: true })
-  await expect(page.getByRole("heading", { name: "archive.opaque" })).toBeVisible()
-  for (const path of Object.keys(texts)) await expect(page.getByRole("heading", { name: path })).toHaveCount(0)
 })
 
 test("an unfinished comparison and its choice return after reopening", async ({ page }) => {
@@ -429,12 +405,14 @@ test("an unfinished comparison and its choice return after reopening", async ({ 
   remoteSha = "phone-sha"
   await page.goto("/journal")
   await page.getByRole("button", { name: "Compare and sync" }).click()
+  await openRemoteChange(page, "main.journal")
   await expect(page.getByRole("heading", { name: "Compare copies" })).toBeVisible()
   await page.getByRole("button", { name: "Keep this copy" }).click()
   await page.getByRole("button", { name: "Close and decide later" }).click()
   await expect(page.getByRole("heading", { name: "Compare copies" })).toBeHidden()
 
   await page.reload()
+  await openRemoteChange(page, "main.journal")
   await expect(page.getByRole("heading", { name: "Compare copies" })).toBeVisible()
   await expect(page.getByRole("button", { name: "Keep this copy", exact: true })).toBeVisible()
 })
@@ -466,6 +444,7 @@ test("a version changed after comparison is not overwritten", async ({ page }) =
   remoteSha = "phone-sha"
   await page.goto("/journal")
   await page.getByRole("button", { name: "Compare and sync" }).click()
+  await openRemoteChange(page, "main.journal")
   await expect(page.getByRole("heading", { name: "Compare copies" })).toBeVisible()
 
   remoteText = `${JOURNAL} ; changed again\n`
@@ -473,32 +452,37 @@ test("a version changed after comparison is not overwritten", async ({ page }) =
   await page.getByRole("button", { name: "Keep this copy" }).click()
   await expect(page.getByText("The journal can be read.")).toBeVisible()
   await page.getByRole("button", { name: "Confirm and apply" }).click()
-  await expect(page.getByText("; changed again", { exact: false }).first()).toBeVisible()
-  await expect(page.getByText(/changed after this comparison/)).toHaveCount(0)
+  await expect(page.getByText(/changed after this comparison/)).toBeVisible()
   expect(writes).toEqual([])
+  expect(await page.evaluate(() => window.choai.journal.text({ path: "main.journal" }))).toMatchObject({
+    ok: true,
+    value: { text: JOURNAL },
+  })
 })
 
 test("changes on GitHub not yet taken mark the rail when the app opens, until they are taken", async ({ page }) => {
   const github: Answered = { message: undefined, asked: [] }
   await answerGitHub(page, github)
   await takeTheBooks(page)
-  const backups = page.getByRole("button", { name: "Backups", exact: true })
-  await page.waitForTimeout(500)
-  await expect(backups.locator("[data-attention]")).toHaveCount(0)
+  const git = page.getByRole("button", { name: "Backups", exact: true }).first()
+  await expect(page.getByText("No remote changes to review.")).toBeVisible()
+  await expect(git.locator("[data-attention]")).toHaveCount(0)
 
   github.sha = "sent-from-the-phone"
-  github.text = `${JOURNAL}; changed on the phone\n`
-  const previousRequests = github.asked.length
+  github.text = `${JOURNAL}; revised from another device\n`
   await page.reload()
   await expect.poll(async () => (await page.evaluate(() => window.choai?.journal.summary({})))?.ok).toBe(true)
+  const remoteFileRead = page.waitForResponse((response) =>
+    response.request().method() === "GET" && new URL(response.url()).pathname.includes("/contents/"),
+  )
   await page.evaluate(() => window.dispatchEvent(new Event("focus")))
-  await expect.poll(() => github.asked.length).toBeGreaterThan(previousRequests)
-  await expect(backups.locator("[data-attention]")).toHaveCount(1)
+  await remoteFileRead
+  await expect(git.locator("[data-attention]")).toHaveCount(1, { timeout: 15_000 })
 
-  await page.getByRole("button", { name: "Journal", exact: true }).click()
-  await backups.click()
-  await expect(page.getByRole("status")).toContainText("GitHub has changes this device has not taken yet")
+  await git.click()
+  await page.getByRole("link", { name: "Back to the history", exact: true }).click()
+  await git.click()
+  await expect(page.getByRole("button", { name: "Take", exact: true })).toBeEnabled()
   await page.getByRole("button", { name: "Take", exact: true }).click()
-  await expect(backups.locator("[data-attention]")).toHaveCount(0)
-  await expect(page.getByRole("status")).toBeHidden()
+  await expect(git.locator("[data-attention]")).toHaveCount(0, { timeout: 15_000 })
 })

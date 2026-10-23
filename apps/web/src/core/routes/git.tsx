@@ -41,7 +41,7 @@ export default function Git(): JSX.Element {
   const looking = () => lookingAt(pageOf(location.hash))
   const changing = () => {
     const now = looking()
-    return now.at === "change" ? now.path : undefined
+    return now.at === "local-change" || now.at === "change" ? now.path : undefined
   }
   const opened = () => {
     const now = looking()
@@ -92,9 +92,11 @@ function HistoryView(props: { readonly commit: string | undefined }): JSX.Elemen
     <div class="@container flex flex-col gap-3">
       <header class="flex items-center justify-between gap-2">
         <h2 class="text-sm font-medium">{t("git.graph")}</h2>
-        <Button variant="ghost" size="sm" disabled={reading() || unconnected()} onClick={readHistoryAgain}>
-          {t("git.readAgain")}
-        </Button>
+        <Show when={historyNow().at === "settled"}>
+          <Button variant="ghost" size="sm" disabled={reading() || unconnected()} onClick={readHistoryAgain}>
+            {t("git.readAgain")}
+          </Button>
+        </Show>
       </header>
 
       <Show when={reading()}>

@@ -3,7 +3,7 @@ import { For, Show, createEffect, createSignal, on, onMount, type JSX } from "so
 import { Button } from "~/core/components/ui/button"
 import { DriveSnag } from "~/core/components/google-drive-panel"
 import { DiffView } from "~/core/components/git/diff-view"
-import { accessToken, getRevisionContent, loadIdentity, readDriveHistory, sessionToken, type DriveHistory, type DriveRevision, type Failure, type Snag } from "~/core/google-drive/index"
+import { accessToken, deleteRevision, forgetSession, getRevisionContent, loadIdentity, readDriveHistory, sessionToken, type DriveHistory, type DriveRevision, type Failure, type Snag } from "~/core/google-drive/index"
 import { clientIdNow } from "~/core/google-drive/kept"
 import { aroundChanges, changes, lineDiff } from "~/core/lib/diff"
 import { Ok, type Result } from "~/core/lib/monad"
@@ -21,6 +21,7 @@ export function GoogleDriveHistory(props: {
   const [snag, setSnag] = createSignal<Snag | undefined>()
   const [needsConnection, setNeedsConnection] = createSignal(false)
   const [detailAttempt, setDetailAttempt] = createSignal(0)
+  const [changingRevision, setChangingRevision] = createSignal<{ readonly id: string } | undefined>()
 
   const load = async (authorize: boolean): Promise<void> => {
     setBusy(true)
@@ -62,7 +63,49 @@ export function GoogleDriveHistory(props: {
   })
 
   const choose = (revision: DriveRevision): void => props.onChoose(revision.id)
-
+  const tokenForChange = async (): Promise<string | undefined> => {
+    const saved = sessionToken(clientIdNow())
+    if (saved !== undefined) return saved
+    const identity = await loadIdentity()
+    if (!identity.ok) {
+      setNeedsConnection(true)
+      return undefined
+    }
+    const authorized = await accessToken(clientIdNow())
+    if (!authorized.ok) {
+      setNeedsConnection(true)
+      return undefined
+    }
+    setNeedsConnection(false)
+    return authorized.value
+  }
+  const remove = async (revision: DriveRevision): Promise<void> => {
+    const read = history()
+    if (read === undefined) return
+    const confirmation = revision.keepForever
+      ? t("gdrive.deleteKeptRevisionConfirm")
+      : t("gdrive.deleteRevisionConfirm")
+    if (!window.confirm(confirmation)) return
+    const token = await tokenForChange()
+    if (token === undefined) {
+      return
+    }
+    setChangingRevision({ id: revision.id })
+    setSnag(undefined)
+    const currentRevisionId = read.file.headRevisionId ?? read.revisions[0]?.id
+    const result = await deleteRevision(token, read.file.id, revision, currentRevisionId)
+    setChangingRevision(undefined)
+    if (!result.ok) {
+      if (result.error.kind === "unauthorised") {
+        forgetSession()
+        setNeedsConnection(true)
+      }
+      setSnag({ at: "drive", failure: result.error })
+      return
+    }
+    if (props.revision === revision.id) props.onChoose(undefined)
+    await load(false)
+  }
   const selectedRevision = (): DriveRevision | undefined => {
     const revisions = history()?.revisions ?? []
     return revisions.find(({ id }) => id === props.revision) ?? (props.revision === undefined ? revisions[0] : undefined)
@@ -113,7 +156,9 @@ export function GoogleDriveHistory(props: {
           <h2 class="text-sm font-medium">{t("gdrive.historyGraph")}</h2>
           <p class="truncate text-xs text-muted-foreground">{props.remote.path}</p>
         </div>
-        <Button variant="ghost" size="sm" disabled={busy()} onClick={() => void load(true)}>{t("gdrive.readAgain")}</Button>
+        <Show when={history() !== undefined || snag() !== undefined}>
+          <Button variant="ghost" size="sm" disabled={busy()} onClick={() => void load(true)}>{t("gdrive.readAgain")}</Button>
+        </Show>
       </header>
 
       <Show when={busy()}><p class="text-xs text-muted-foreground">{t("gdrive.readingHistory")}</p></Show>
@@ -129,24 +174,42 @@ export function GoogleDriveHistory(props: {
         <Show when={read().revisions.length > 0} fallback={<p class="text-sm text-muted-foreground">{t("gdrive.noRevisions")}</p>}>
           <div class="grid gap-4 @3xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
             <ul class="flex min-w-0 flex-col">
-              <For each={read().revisions}>{(revision, index) => (
-                <li>
+              <For each={read().revisions}>{(revision, index) => {
+                const current = (): boolean =>
+                  revision.id === read().file.headRevisionId || (read().file.headRevisionId === undefined && index() === 0)
+                return (
+                <li class="flex items-center">
                   <button
                     type="button"
                     onClick={() => choose(revision)}
-                    class="flex w-full items-center gap-2 pr-2 text-left text-xs hover:bg-accent hover:text-accent-foreground"
-                    classList={{ "bg-accent text-accent-foreground": props.revision === revision.id || (props.revision === undefined && index() === 0) }}
+                    class="flex min-w-0 flex-1 items-center gap-2 pr-2 text-left text-xs hover:bg-accent hover:text-accent-foreground"
+                    classList={{ "bg-accent text-accent-foreground": props.revision === revision.id || (props.revision === undefined && current()) }}
                   >
-                    <RevisionNode latest={index() === 0} selected={props.revision === revision.id || (props.revision === undefined && index() === 0)} />
+                    <RevisionNode latest={current()} selected={props.revision === revision.id || (props.revision === undefined && current())} />
                     <span class="flex min-w-0 flex-1 items-center gap-2 py-2">
                       <span class="min-w-0 flex-1 truncate">{revision.lastModifyingUser?.displayName ?? revision.lastModifyingUser?.emailAddress ?? t("gdrive.unknownAuthor")}</span>
-                      <Show when={index() === 0}><span class="shrink-0 rounded border border-primary px-1.5 py-px text-[0.65rem] font-medium text-primary">{t("gdrive.currentRevision")}</span></Show>
+                      <Show when={current()}><span class="shrink-0 rounded border border-primary px-1.5 py-px text-[0.65rem] font-medium text-primary">{t("gdrive.currentRevision")}</span></Show>
                       <Show when={revision.keepForever}><span class="shrink-0 rounded border px-1.5 py-px text-[0.65rem]">{t("gdrive.keptRevision")}</span></Show>
                       <span class="hidden shrink-0 text-muted-foreground @md:inline">{dateOf(revision)}</span>
                     </span>
                   </button>
+                  <Show when={!current()}>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      class="h-7 shrink-0 px-2"
+                      disabled={changingRevision() !== undefined}
+                      onClick={() => void remove(revision)}
+                    >
+                      {changingRevision()?.id === revision.id
+                        ? t("gdrive.deletingRevision")
+                        : revision.keepForever ? t("gdrive.deleteKeptRevision") : t("gdrive.deleteRevision")}
+                    </Button>
+                  </Show>
                 </li>
-              )}</For>
+                )
+              }}</For>
             </ul>
             <div class="order-first min-w-0 @3xl:order-none">
               <Show when={selectedRevision()} fallback={<p class="hidden text-xs text-muted-foreground @3xl:block">{t("gdrive.chooseRevision")}</p>}>

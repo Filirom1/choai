@@ -6,18 +6,19 @@ import type { Posting, Status, Tag, Transaction } from "~/core/hledger/wire"
 import { journal } from "~/core/journal/store"
 import { documents, entryDisplay } from "~/core/journal/book-settings"
 import { documentPathOn } from "~/core/journal/documents"
-import { byDay, weekdayOf } from "~/core/journal/days"
+import { byDay, weekdayOf, type Day } from "~/core/journal/days"
+import { payeeAndNote } from "~/core/journal/description"
 import { withoutKindNow } from "~/core/journal/chart"
 import { usePage, useQuery } from "~/core/journal/query"
 import { PAGE, offsetOf } from "~/core/journal/paging"
 import { getOrUndefined, matchResource } from "~/core/lib/monad"
 import { Button } from "~/core/components/ui/button"
-import { ImportIcon, PaperclipIcon, PlusIcon } from "~/core/lib/ui/icons"
+import { ImportIcon, PaperclipIcon } from "~/core/lib/ui/icons"
 import { startEditingEntry } from "~/core/compose/editing"
-import { dock } from "~/core/dock"
 import { selectCsv } from "~/core/statement/import-selection"
 import { TroubleNote } from "~/core/components/trouble-note"
 import { Welcome } from "~/core/components/welcome"
+import { dock } from "~/core/dock"
 import { locale, t } from "~/core/i18n"
 
 /**
@@ -56,20 +57,9 @@ function Entries(): JSX.Element {
           <div class={`report-printable flex flex-col gap-4 ${WIDTH}`}>
             <div class="flex flex-wrap items-center justify-between gap-2">
               <div class="flex flex-wrap gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  class="report-print-action"
-                  aria-label={t("compose.open")}
-                  title={t("compose.open")}
-                  onClick={() => dock.show("composing")}
-                >
-                  <PlusIcon />
-                  {t("compose.action")}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
+              <Button
+                variant="outline"
+                size="sm"
                   class="report-print-action"
                   aria-label={t("csvImport.title")}
                   title={t("csvImport.title")}
@@ -128,14 +118,19 @@ const describeRange = (offset: number, total: number): string =>
  * shell has already pinned above the work (`--stuck-above`).
  */
 function Days(props: { entries: readonly Transaction[] }): JSX.Element {
+  const display = () => entryDisplay()
+  const days = (): readonly Day<Transaction>[] =>
+    display().date ? byDay(props.entries) : [{ date: "", entries: props.entries }]
   return (
     <div class="flex flex-col gap-4">
-      <For each={byDay(props.entries)}>
+      <For each={days()}>
         {(day) => (
           <section class="flex flex-col gap-2">
-            <h3 class="sticky top-[var(--stuck-above,0px)] z-[5] bg-background py-1 font-mono text-xs text-muted-foreground">
-              {headingOf(day.date)}
-            </h3>
+            <Show when={display().date}>
+              <h3 class="sticky top-[var(--stuck-above,0px)] z-[5] bg-background py-1 font-mono text-xs text-muted-foreground">
+                {headingOf(day.date)}
+              </h3>
+            </Show>
             <For each={day.entries}>{(entry) => <EntryCard transaction={entry} />}</For>
           </section>
         )}
@@ -159,6 +154,7 @@ const headingOf = (date: string): string => {
 function EntryCard(props: { transaction: Transaction }): JSX.Element {
   const open = (): void => startEditingEntry(props.transaction)
   const display = () => entryDisplay()
+  const description = payeeAndNote(props.transaction.tdescription)
   return (
     <div
       role="button"
@@ -180,7 +176,9 @@ function EntryCard(props: { transaction: Transaction }): JSX.Element {
           <Show when={display().code && props.transaction.tcode !== ""}>
             <span class="font-mono text-muted-foreground">({props.transaction.tcode})</span>{" "}
           </Show>
-          {props.transaction.tdescription}
+          <Show when={display().payee && description.payee !== ""}>{description.payee}</Show>
+          <Show when={display().payee && display().note && description.payee !== "" && description.note !== ""}>{" | "}</Show>
+          <Show when={display().note && description.note !== ""}>{description.note}</Show>
         </span>
         <Show when={documentPathOn(props.transaction.ttags, documents().tag) !== undefined}>
           <span class="text-primary" title={t("journal.documentPresent")}>

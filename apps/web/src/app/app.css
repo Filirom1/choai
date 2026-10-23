@@ -382,3 +382,30 @@
     pointer-events: none;
   }
 }
+
+.journal-text-editor .tok-keyword,
+.journal-text-editor .tok-variableName {
+  color: var(--info-foreground);
+  font-weight: 600;
+}
+
+.journal-text-editor .tok-comment {
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+
+.journal-text-editor .tok-number,
+.journal-text-editor .tok-string,
+.journal-text-editor .tok-string2 {
+  color: var(--success-foreground);
+}
+
+.journal-text-editor .tok-propertyName {
+  color: var(--primary);
+}
+
+.journal-text-editor .tok-atom,
+.journal-text-editor .tok-meta,
+.journal-text-editor .tok-operator {
+  color: var(--warning-foreground);
+}
