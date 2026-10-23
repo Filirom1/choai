@@ -13,6 +13,8 @@ let diskReadSequence: readonly (readonly LocalDiskFile[])[] = []
 let localPermission: PermissionState = "granted"
 let localWrites: readonly string[] = []
 let localRemovals: readonly string[] = []
+let fileRewrites: readonly { readonly path: string; readonly text: string }[] = []
+let fileRemovals: readonly string[] = []
 let localBlobs: Readonly<Record<string, Blob>> = {}
 let trialFailure: { readonly kind: "read-failed"; readonly detail: string } | undefined
 
@@ -76,13 +78,19 @@ mock.module("../src/core/journal/store", () => ({
   noteLocalBinaryWritten: async () => undefined,
   noteLocalTextWritten: async () => undefined,
   removeAttachment: async () => Ok(undefined),
-  removeFile: async () => Ok(undefined),
+  removeFile: async (path: string) => {
+    fileRemovals = [...fileRemovals, path]
+    return Ok(undefined)
+  },
   replaceAttachment: async (path: string, blob: Blob) => {
     githubReplacements = [...githubReplacements, { path, blob }]
     return Ok(undefined)
   },
   restoreFile: async () => trialFailure === undefined ? Ok(undefined) : Err(trialFailure),
-  rewriteFile: async () => trialFailure === undefined ? Ok(undefined) : Err(trialFailure),
+  rewriteFile: async (path: string, text: string) => {
+    fileRewrites = [...fileRewrites, { path, text }]
+    return trialFailure === undefined ? Ok(undefined) : Err(trialFailure)
+  },
 }))
 
 mock.module("../src/core/journal/kept", () => ({
@@ -308,6 +316,8 @@ beforeEach(() => {
   localPermission = "granted"
   localWrites = []
   localRemovals = []
+  fileRewrites = []
+  fileRemovals = []
   localBlobs = {}
   githubLocalBlob = undefined
   trialFailure = undefined
@@ -342,6 +352,20 @@ beforeEach(() => {
   failedPuts = 0
   failedDeletes = 0
   deleteAttempts = 0
+})
+
+test("discarding a pending file restores its baseline and refuses a stale view", async () => {
+  expect(await localResolution.discardLocalChange("main.journal", "local\n", "base\n", false)).toEqual({ ok: true, value: undefined })
+  expect(fileRewrites).toEqual([{ path: "main.journal", text: "base\n" }])
+
+  expect(await localResolution.discardLocalChange("main.journal", "outdated\n", "base\n", false)).toEqual({
+    ok: false, error: { at: "stale", path: "main.journal" },
+  })
+  expect(fileRewrites).toHaveLength(1)
+
+  open = { ...open, source: { ...open.source, files: { ...open.source.files, "extra.journal": "new\n" } } }
+  expect(await localResolution.discardLocalChange("extra.journal", "new\n", "", true)).toEqual({ ok: true, value: undefined })
+  expect(fileRemovals).toEqual(["extra.journal"])
 })
 
 test("initializing GitHub and Drive books keeps paired hledger .latest checkpoints", async () => {
@@ -428,7 +452,7 @@ test("local comparison tracks Markdown documentation as text", async () => {
   }))
 })
 
-test("local deletion is reviewed, while destination-only unknown files are adopted", async () => {
+test("local deletion and destination-only files are left for a per-file choice", async () => {
   open = { ...open, source: { ...open.source, files: {} } }
   expect(await localResolution.resolveLocalResolution(await snapshotOfText("destination\n", null), { take: "local" })).toEqual({ ok: true, value: undefined })
   expect(localRemovals).toEqual(["main.journal"])
@@ -443,13 +467,19 @@ test("local deletion is reviewed, while destination-only unknown files are adopt
   const exported = await localResolution.exportLocalResolution(unknown)
   expect(exported.ok && await exported.value.arrayBuffer()).toEqual(await unknownFile.file.arrayBuffer())
   open = { ...open, source: { ...open.source, files: {} }, local: { ...open.local, base: {} } }
-  expect(await localResolution.inspectLocalResolution()).toEqual({ ok: true, value: [] })
-  expect(githubReplacements.map(({ path }) => path)).toEqual(["archive.bin"])
+  const destinationOnly = await localResolution.inspectLocalResolution()
+  expect(destinationOnly.ok && destinationOnly.value).toContainEqual(expect.objectContaining({
+    path: "archive.bin", role: "unknown", state: "added-destination",
+  }))
+  expect(githubReplacements).toEqual([])
 
   open = { ...open, source: { ...open.source, files: {} }, local: { ...open.local, base: {} } }
   disk = [file("README - Copy.md", "Notes\n")]
   githubReplacements = []
-  expect(await localResolution.inspectLocalResolution()).toEqual({ ok: true, value: [] })
+  const readme = await localResolution.inspectLocalResolution()
+  expect(readme.ok && readme.value).toContainEqual(expect.objectContaining({
+    path: "README - Copy.md", state: "added-destination",
+  }))
   expect(githubReplacements).toEqual([])
 
   const companion = new Blob([Uint8Array.of(1, 2)], { type: "image/jpeg" })
@@ -502,6 +532,27 @@ test("Drive comparison loads lazy companions, keeps text companions textual, and
     path: "receipt.pdf",
     baseBinary: { size: receipt.size, fingerprint: await fingerprint(receipt) },
   }))
+})
+
+test("Drive leaves destination-only files for an explicit per-file choice", async () => {
+  open = {
+    ...open,
+    remote: driveRemote,
+    local: undefined,
+    source: { ...open.source, files: { "main.journal": "same\n" } },
+  }
+  driveFiles = [
+    driveFixture({ id: "main", name: "main.journal" }),
+    driveFixture({ id: "notes", name: "notes.journal" }),
+  ]
+  driveTexts = { main: "same\n", notes: "remote notes\n" }
+
+  const inspected = await driveResolution.inspectResolution()
+  expect(inspected.ok && inspected.value).toContainEqual(expect.objectContaining({
+    path: "notes.journal", role: "accounting", state: "added-destination",
+  }))
+  expect(openedFiles).toEqual({})
+  expect(driveUpdates).toEqual([])
 })
 
 test("Drive stops on a stale metadata recheck, retains recovery, and reports unverifiable writes", async () => {
@@ -584,6 +635,24 @@ test("a partial GitHub push reports completed paths and retries only what remain
   githubTree = ["books/first.jpg"]
   expect(await githubResolution.push()).toEqual({ ok: true, value: { did: "pushed", files: 2 } })
   expect(githubUploads.map(({ path }) => path)).toEqual(["books/first.jpg", "books/second.jpg"])
+})
+
+test("GitHub leaves destination-only files for an explicit per-file choice", async () => {
+  open = {
+    ...open,
+    local: undefined,
+    remote: githubRemote,
+    source: { ...open.source, files: { "main.journal": "same\n" } },
+  }
+  githubTree = ["books/main.journal", "books/notes.journal"]
+  githubTexts = { "books/main.journal": "same\n", "books/notes.journal": "remote notes\n" }
+
+  const inspected = await githubResolution.inspect()
+  expect(inspected.ok && inspected.value).toContainEqual(expect.objectContaining({
+    path: "notes.journal", role: "accounting", state: "added-destination",
+  }))
+  expect(openedFiles).toEqual({})
+  expect(githubUploads).toEqual([])
 })
 
 test("manual GitHub text is validated before upload, and a new unknown binary can be adopted", async () => {

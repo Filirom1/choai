@@ -33,10 +33,50 @@ declare global {
   }
 }
 
-const [session, setSession] = createSignal<{ readonly accessToken: string; readonly clientId: string; readonly expiresAt: number } | undefined>()
+interface Session {
+  readonly accessToken: string
+  readonly clientId: string
+  readonly expiresAt: number
+}
+
+const SESSION_KEY = "choai:gdrive:session"
+const [session, setSession] = createSignal<Session | undefined>()
 let loading: Promise<Result<void, AuthFailure>> | undefined
 
 export type AuthFailure = { readonly at: "script" } | { readonly at: "denied" } | { readonly at: "client-id" }
+
+const cachedSession = (): Session | undefined => {
+  try {
+    const value: unknown = JSON.parse(sessionStorage.getItem(SESSION_KEY) ?? "null")
+    if (
+      typeof value === "object" &&
+      value !== null &&
+      "accessToken" in value &&
+      typeof value.accessToken === "string" &&
+      "clientId" in value &&
+      typeof value.clientId === "string" &&
+      "expiresAt" in value &&
+      typeof value.expiresAt === "number" &&
+      value.expiresAt > Date.now() + 30_000
+    ) return {
+      accessToken: value.accessToken,
+      clientId: value.clientId,
+      expiresAt: value.expiresAt,
+    }
+  } catch {
+    return undefined
+  }
+  return undefined
+}
+
+const saveSession = (value: Session): void => {
+  setSession(value)
+  try {
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(value))
+  } catch {
+    return
+  }
+}
 
 export const loadIdentity = (): Promise<Result<void, AuthFailure>> => {
   if (window.google?.accounts?.oauth2 !== undefined) return Promise.resolve(Ok(undefined))
@@ -63,8 +103,9 @@ export const loadIdentity = (): Promise<Result<void, AuthFailure>> => {
 }
 
 export const accessToken = (clientId: string): Promise<Result<string, AuthFailure>> => {
-  const saved = session()
   const id = clientId.trim()
+  const saved = session() ?? cachedSession()
+  if (saved !== undefined) setSession(saved)
   if (saved !== undefined && saved.clientId === id && saved.expiresAt > Date.now() + 30_000) return Promise.resolve(Ok(saved.accessToken))
   if (id === "") return Promise.resolve(Err({ at: "client-id" }))
   const identity = window.google?.accounts?.oauth2
@@ -80,7 +121,7 @@ export const accessToken = (clientId: string): Promise<Result<string, AuthFailur
           return
         }
         const value = response.access_token
-        setSession({ accessToken: value, clientId: id, expiresAt: Date.now() + (response.expires_in ?? 3600) * 1000 })
+        saveSession({ accessToken: value, clientId: id, expiresAt: Date.now() + (response.expires_in ?? 3600) * 1000 })
         resolve(Ok(value))
       },
       error_callback: () => {
@@ -92,10 +133,18 @@ export const accessToken = (clientId: string): Promise<Result<string, AuthFailur
 }
 
 export const sessionToken = (clientId: string): string | undefined => {
-  const saved = session()
+  const saved = session() ?? cachedSession()
+  if (saved !== undefined) setSession(saved)
   return saved !== undefined && saved.clientId === clientId.trim() && saved.expiresAt > Date.now() + 30_000
     ? saved.accessToken
     : undefined
 }
 
-export const forgetSession = (): void => setSession(undefined)
+export const forgetSession = (): void => {
+  setSession(undefined)
+  try {
+    sessionStorage.removeItem(SESSION_KEY)
+  } catch {
+    return
+  }
+}

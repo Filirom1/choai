@@ -1,4 +1,5 @@
 import { Err, Ok, type Result } from "~/core/lib/monad"
+import { textOf } from "~/core/lib/text"
 
 const ROOT = "https://www.googleapis.com/drive/v3"
 const UPLOAD = "https://www.googleapis.com/upload/drive/v3"
@@ -26,8 +27,10 @@ export interface DriveRevision {
 export type Failure =
   | { readonly kind: "offline" }
   | { readonly kind: "unauthorised" }
+  | { readonly kind: "revision-not-downloadable" }
   | { readonly kind: "no-such-file" }
   | { readonly kind: "conflict" }
+  | { readonly kind: "protected-revision" }
   | { readonly kind: "refused"; readonly status: number }
 
 const FILE_FIELDS = "nextPageToken,files(id,name,mimeType,md5Checksum,modifiedTime,version,size,parents,headRevisionId)"
@@ -83,7 +86,7 @@ export const getFileContent = async (token: string, fileId: string): Promise<Res
   if (!response.ok) return response
   if (!response.value.ok) return Err(failureOf(response.value))
   try {
-    return Ok(await response.value.text())
+    return Ok(textOf(await response.value.arrayBuffer()))
   } catch {
     return Err({ kind: "refused", status: response.value.status })
   }
@@ -117,12 +120,27 @@ export const getRevisionContent = async (token: string, fileId: string, revision
     { headers: authHeaders(token) },
   )
   if (!response.ok) return response
-  if (!response.value.ok) return Err(failureOf(response.value))
+  if (!response.value.ok) return Err(await revisionFailureOf(response.value))
   try {
-    return Ok(await response.value.text())
+    return Ok(textOf(await response.value.arrayBuffer()))
   } catch {
     return Err({ kind: "refused", status: response.value.status })
   }
+}
+
+export const deleteRevision = async (
+  token: string,
+  fileId: string,
+  revision: DriveRevision,
+  currentRevisionId: string | undefined,
+): Promise<Result<void, Failure>> => {
+  if (revision.id === currentRevisionId) return Err({ kind: "protected-revision" })
+  const response = await call(
+    `${ROOT}/files/${encodeURIComponent(fileId)}/revisions/${encodeURIComponent(revision.id)}`,
+    { method: "DELETE", headers: authHeaders(token) },
+  )
+  if (!response.ok) return response
+  return response.value.ok ? Ok(undefined) : Err(failureOf(response.value))
 }
 
 export const getFileBlob = async (token: string, fileId: string): Promise<Result<Blob, Failure>> => {
@@ -225,11 +243,18 @@ export const pinRevision = async (
   token: string,
   fileId: string,
   revisionId: string,
+): Promise<Result<void, Failure>> => setRevisionKeepForever(token, fileId, revisionId, true)
+
+const setRevisionKeepForever = async (
+  token: string,
+  fileId: string,
+  revisionId: string,
+  keepForever: boolean,
 ): Promise<Result<void, Failure>> => {
   const response = await call(`${ROOT}/files/${encodeURIComponent(fileId)}/revisions/${encodeURIComponent(revisionId)}?fields=id,keepForever`, {
     method: "PATCH",
     headers: { ...authHeaders(token), "Content-Type": "application/json" },
-    body: JSON.stringify({ keepForever: true }),
+    body: JSON.stringify({ keepForever }),
   })
   if (!response.ok) return response
   return response.value.ok ? Ok(undefined) : Err(failureOf(response.value))
@@ -279,4 +304,26 @@ const failureOf = (response: Response): Failure => {
   if (response.status === 404) return { kind: "no-such-file" }
   if (response.status === 412) return { kind: "conflict" }
   return { kind: "refused", status: response.status }
+}
+
+const revisionFailureOf = async (response: Response): Promise<Failure> => {
+  if (response.status !== 403) return failureOf(response)
+  try {
+    const body: unknown = await response.clone().json()
+    if (
+      typeof body === "object" &&
+      body !== null &&
+      "error" in body &&
+      typeof body.error === "object" &&
+      body.error !== null &&
+      "errors" in body.error &&
+      Array.isArray(body.error.errors) &&
+      body.error.errors.some((error: unknown) =>
+        typeof error === "object" && error !== null && "reason" in error && error.reason === "cannotDownloadRevision",
+      )
+    ) return { kind: "revision-not-downloadable" }
+  } catch {
+    return failureOf(response)
+  }
+  return failureOf(response)
 }

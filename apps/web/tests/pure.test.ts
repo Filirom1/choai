@@ -50,6 +50,7 @@ import type { BalanceReport, RegisterRow, Transaction } from "~/core/hledger/wir
 import { withoutKind } from "~/core/journal/declarations"
 import { aroundChanges, changes, fromPatch, lineDiff } from "~/core/lib/diff"
 import { laid, ordered, strokes, widthOf } from "~/core/github/graph"
+import { addressOf, lookingAt } from "~/core/components/git/looking"
 import {
   addressOfStatement,
   arrivalsAt,
@@ -472,6 +473,11 @@ describe("reading a file's bytes", () => {
     const said = textOf(bytes(0x83, 0x4c, 0x83, 0x86, 0x83, 0x45))
     expect(said).toBe("キユウ")
     expect(said).not.toContain("\uFFFD")
+  })
+
+  test("French CSV headers exported as Windows-1252 keep their accents", () => {
+    expect(textOf(bytes(68, 97, 116, 101, 59, 68, 233, 98, 105, 116, 59, 76, 105, 98, 101, 108, 108, 233)))
+      .toBe("Date;Débit;Libellé")
   })
 
   test("a byte-order mark is believed, and not left in the text", () => {
@@ -1085,6 +1091,19 @@ describe("where the app is, as the address says it", () => {
     expect(readFragment("")).toEqual({ page: "", layers: [] })
     expect(pageOf("#change=a%2Bb.journal+compose")).toBe("#change=a%2Bb.journal")
     expect(pageOf("#work")).toBe("")
+  })
+
+  describe("local and remote file changes have distinct addresses", () => {
+    test("round-trips each source without confusing the other", () => {
+      const path = "choai-settings.jsonl"
+      const local = addressOf({ at: "local-change", path })
+      const remote = addressOf({ at: "remote-change", path })
+
+      expect(local).toBe("/remotes#local-change=choai-settings.jsonl")
+      expect(remote).toBe("/remotes#remote-change=choai-settings.jsonl")
+      expect(lookingAt("#local-change=choai-settings.jsonl")).toEqual({ at: "local-change", path })
+      expect(lookingAt("#remote-change=choai-settings.jsonl")).toEqual({ at: "remote-change", path })
+    })
   })
 
   test("the same screen is always written the same way", () => {

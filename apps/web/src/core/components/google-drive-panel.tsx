@@ -244,7 +244,10 @@ export function GoogleDrivePanel(props: { readonly bound: GoogleDriveBound }): J
   })
   const checkRemote = (): Promise<void> => run(async () => {
     const result = await checkBehind()
-    if (!result.ok) setSnag(result.error)
+    if (!result.ok) {
+      if (result.error.at === "drive" && result.error.failure.kind === "unauthorised") forgetSession()
+      setSnag(result.error)
+    }
     else {
       noteDriveChecked()
       setBehindFiles(result.value)
@@ -407,8 +410,10 @@ const snagWords = (snag: Snag): string => {
       switch (snag.failure.kind) {
         case "offline": return t("gdrive.offline")
         case "unauthorised": return t("gdrive.unauthorised")
+        case "revision-not-downloadable": return t("gdrive.revisionNotDownloadable")
         case "no-such-file": return t("gdrive.noSuchFile")
         case "conflict": return t("gdrive.conflict", { path: "" })
+        case "protected-revision": return t("gdrive.revisionProtected")
         case "refused": return t("gdrive.refused", { status: snag.failure.status })
       }
   }

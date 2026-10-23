@@ -31,6 +31,7 @@ test("native hledger import proposes transactions and .latest together", async (
       [rulesPath]: [
         "fields date, description, amount",
         "date-format %Y-%m-%d",
+        "skip 1",
         "account1 assets:bank:checking",
         "account2 expenses:food",
         "",

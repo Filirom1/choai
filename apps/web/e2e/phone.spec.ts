@@ -133,7 +133,7 @@ test("on a narrow window the text is reached by choosing its file", async ({ pag
   await expect(theFile(page)).toBeHidden()
   await expect(back(page)).toBeVisible()
   await expect(page).toHaveURL(/\/source#main\.journal$/)
-  await expect(page.locator("textarea")).toBeVisible()
+  await expect(page.locator(".journal-text-editor .cm-content")).toBeVisible()
 })
 
 /** With room for both, the file list and the text are side by side. */
@@ -146,7 +146,7 @@ test("on a wide window the text is opened beside its files", async ({ page }) =>
   await expect(theFile(page)).toBeVisible()
   await expect(back(page)).toBeHidden()
   await expect(page).toHaveURL(/\/source/)
-  await expect(page.locator("textarea")).toBeVisible()
+  await expect(page.locator(".journal-text-editor .cm-content")).toBeVisible()
 
   // Under the files, the book they make up: its name, and the ways to let it go.
   await expect(page.getByRole("textbox", { name: "The current journal" })).toHaveValue("a demo journal")
@@ -171,13 +171,13 @@ test("unsaved text survives leaving the text, and its file is marked", async ({ 
   await openTheDemo(page)
   await theText(page).click()
 
-  await page.locator("textarea").fill("; typed and not saved\n")
+  await page.locator(".journal-text-editor .cm-content").fill("; typed and not saved\n")
   await expect(theFile(page)).toBeHidden()
   await expect(page.getByRole("button", { name: /^main\.journal/ })).toContainText("•")
 
   await page.getByRole("button", { name: "Journal", exact: true }).first().click()
   await theText(page).click()
-  await expect(page.locator("textarea")).toHaveValue("; typed and not saved\n")
+  await expect(page.locator(".journal-text-editor .cm-content")).toHaveText("; typed and not saved\n")
 })
 
 /**
@@ -202,6 +202,7 @@ test("the settings list offers the page's own sections, and nothing else", async
     "Language",
     "Appearance",
     "Current book",
+    "Account order",
   ])
 })
 

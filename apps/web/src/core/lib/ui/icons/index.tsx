@@ -17,6 +17,8 @@ import chevronLeftSvg from './chevron-left.svg?raw'
 import gitBranchSvg from './git-branch.svg?raw'
 import funnelSvg from './funnel.svg?raw'
 import paperclipSvg from './paperclip.svg?raw'
+import pinSvg from './pin.svg?raw'
+import trash2Svg from './trash-2.svg?raw'
 
 /**
  * Icons. The SVG bodies live beside this file as .svg files, drawn with
@@ -70,6 +72,10 @@ export const CloudIcon = icon(cloudSvg)
 export const ImportIcon = icon(importSvg)
 /** A document attached to an entry. */
 export const PaperclipIcon = icon(paperclipSvg)
+/** Keep a Drive revision from being automatically removed. */
+export const PinIcon = icon(pinSvg)
+/** Delete a file or revision. */
+export const Trash2Icon = icon(trash2Svg)
 
 export const RefreshIcon = icon(refreshCwSvg)
 

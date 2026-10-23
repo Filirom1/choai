@@ -2,14 +2,15 @@ import { edition } from "~/edition"
 import { viewsWith, type View } from "~/edition/types"
 import { ADD, JOURNAL, RECONCILIATION, REMOTES, REPORTS, SOURCE } from "~/core/address/address"
 import { RemoteExplorer } from "~/core/explorer/RemoteExplorer"
-import { behindNow } from "~/core/components/git/kept-in-view"
+import { behindNow, pendingChangesNow } from "~/core/components/git/kept-in-view"
+import { remoteChangesNow } from "~/core/sync/remote-changes"
 import { JournalExplorer } from "~/core/explorer/JournalExplorer"
 import { SourceExplorer } from "~/core/explorer/SourceExplorer"
 import { SettingsExplorer } from "~/core/explorer/SettingsExplorer"
 import { ReportsExplorer } from "~/core/explorer/ReportsExplorer"
 import { t } from "~/core/i18n"
 import { journal } from "~/core/journal/store"
-import { isGitHubRemote } from "~/core/journal/remote"
+import { isGitHubRemote, isGoogleDriveRemote } from "~/core/journal/remote"
 import { getOrUndefined } from "~/core/lib/monad"
 import { focusesAnAccount, namesAccounts } from "~/core/journal/terms"
 import { CloudIcon, FileCodeIcon, ReceiptIcon, ReconciliationIcon, ScaleIcon, SettingsIcon } from "~/core/lib/ui/icons"
@@ -92,7 +93,16 @@ const CORE: readonly View[] = [
     Explorer: RemoteExplorer,
     page: Remotes,
     writes: false,
-    attention: () => isGitHubRemote(getOrUndefined(journal())?.remote) && behindNow().length > 0,
+    attention: () => {
+      const current = getOrUndefined(journal())
+      const remoteChanges = remoteChangesNow()
+      return (pendingChangesNow()?.length ?? 0) > 0 ||
+        (current?.local !== undefined && remoteChanges?.bookId === current.bookId &&
+          remoteChanges.at === "ready" && remoteChanges.paths.length > 0) ||
+        (isGitHubRemote(current?.remote) && behindNow().length > 0) ||
+        (isGoogleDriveRemote(current?.remote) && remoteChanges?.bookId === current.bookId &&
+          remoteChanges.at === "ready" && remoteChanges.paths.length > 0)
+    },
     reached: { from: "rail" },
   },
   // Not one of the books, so it sits at the foot of the rail, apart from the views.

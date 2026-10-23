@@ -10,6 +10,7 @@ import { DownloadIcon, ImportIcon } from "~/core/lib/ui/icons"
 import { dock } from "~/core/dock"
 import { selectCsv } from "~/core/statement/import-selection"
 import { differsFrom } from "~/core/journal/unsaved-text"
+import { sourceTree, type SourceTreeNode } from "~/core/journal/source-tree"
 import { SOURCE, appPath, addressOfSourceFile } from "~/core/address/address"
 import { useMoves } from "~/core/address/moves"
 import { entryPath, fileShown } from "~/core/routes/source"
@@ -49,41 +50,13 @@ export function SourceExplorer(props: {
     >
       {(open) => (
         <div class="py-1">
-          <For each={inReadingOrder(open())}>
-            {(path) => (
-              <div class="flex items-center">
-                <button
-                  type="button"
-                  onClick={() => choose(path)}
-                  title={path}
-                  class="flex min-w-0 flex-1 items-center gap-1 px-3 py-1 text-left font-mono text-xs hover:bg-accent hover:text-accent-foreground"
-                  classList={{
-                    "bg-accent text-accent-foreground":
-                      appPath(location.pathname) === SOURCE && fileShown(location.hash, open()) === path,
-                  }}
-                >
-                  <span class="min-w-0 truncate">{path}</span>
-                  <Show when={differsFrom(path, open().source.files[path] ?? "")}>
-                    <span aria-label={t("source.unsaved")} title={t("source.unsaved")}>•</span>
-                  </Show>
-                </button>
-                <Show when={path.toLowerCase().endsWith(".csv")}>
-                  <button
-                    type="button"
-                    class="mr-2 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-                    aria-label={t("csvImport.title")}
-                    title={t("csvImport.title")}
-                    onClick={() => {
-                      selectCsv(path)
-                      dock.show("csv-importing")
-                    }}
-                  >
-                    <ImportIcon class="h-3.5 w-3.5" />
-                  </button>
-                </Show>
-              </div>
-            )}
-          </For>
+          <SourceNodes
+            nodes={inReadingOrder(open())}
+            selected={fileShown(location.hash, open())}
+            active={appPath(location.pathname) === SOURCE}
+            open={open()}
+            onChoose={choose}
+          />
           <Book open={open()} />
         </div>
       )}
@@ -96,10 +69,81 @@ export function SourceExplorer(props: {
  * else is read; then the rest by name, which is the order they come back from
  * the device in anyway.
  */
-const inReadingOrder = (open: OpenJournal): readonly string[] => {
+const inReadingOrder = (open: OpenJournal): readonly SourceTreeNode[] => {
   const entry = entryPath(open)
   const files = Object.keys(open.source.files).filter((path) => path !== entry && !isHledgerLatestPath(path))
-  return [entry, ...[...files, ...open.source.attachments.map(({ path }) => path)].sort()]
+  return [
+    { kind: "file", path: entry },
+    ...sourceTree([...files, ...open.source.attachments.map(({ path }) => path)].sort()),
+  ]
+}
+
+function SourceNodes(props: {
+  readonly nodes: readonly SourceTreeNode[]
+  readonly selected: string
+  readonly active: boolean
+  readonly open: OpenJournal
+  readonly onChoose: (path: string) => void
+}): JSX.Element {
+  return (
+    <For each={props.nodes}>
+      {(node) => node.kind === "folder"
+        ? (
+          <details class="min-w-0">
+            <summary
+              title={node.path}
+              class="cursor-pointer px-3 py-1 font-mono text-xs hover:bg-accent hover:text-accent-foreground"
+            >
+              {node.path.split("/").at(-1)}/
+            </summary>
+            <div class="ml-3 border-l border-border pl-1">
+              <SourceNodes {...props} nodes={node.children} />
+            </div>
+          </details>
+        )
+        : <SourceFile path={node.path} selected={props.selected} active={props.active} open={props.open} onChoose={props.onChoose} />}
+    </For>
+  )
+}
+
+function SourceFile(props: {
+  readonly path: string
+  readonly selected: string
+  readonly active: boolean
+  readonly open: OpenJournal
+  readonly onChoose: (path: string) => void
+}): JSX.Element {
+  const name = (): string => props.path.split("/").at(-1) ?? props.path
+  return (
+    <div class="flex min-w-0 items-center">
+      <button
+        type="button"
+        onClick={() => props.onChoose(props.path)}
+        title={props.path}
+        class="flex min-w-0 flex-1 items-center gap-1 px-3 py-1 text-left font-mono text-xs hover:bg-accent hover:text-accent-foreground"
+        classList={{ "bg-accent text-accent-foreground": props.active && props.selected === props.path }}
+      >
+        <span class="min-w-0 truncate">{name()}</span>
+        <Show when={differsFrom(props.path, props.open.source.files[props.path] ?? "")}>
+          <span aria-label={t("source.unsaved")} title={t("source.unsaved")}>•</span>
+        </Show>
+      </button>
+      <Show when={props.path.toLowerCase().endsWith(".csv")}>
+        <button
+          type="button"
+          class="mr-2 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+          aria-label={t("csvImport.title")}
+          title={t("csvImport.title")}
+          onClick={() => {
+            selectCsv(props.path)
+            dock.show("csv-importing")
+          }}
+        >
+          <ImportIcon class="h-3.5 w-3.5" />
+        </button>
+      </Show>
+    </div>
+  )
 }
 
 /**
