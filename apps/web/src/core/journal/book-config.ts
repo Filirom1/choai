@@ -11,6 +11,9 @@ export interface ImportSettings {
 }
 
 export interface EntryDisplaySettings {
+  readonly date: boolean
+  readonly payee: boolean
+  readonly note: boolean
   readonly status: boolean
   readonly code: boolean
   readonly transactionComment: boolean
@@ -35,6 +38,9 @@ export type BookConfigTrouble =
 
 export const DEFAULT_IMPORT_SETTINGS: ImportSettings = { csvFolder: "", rulesFolder: "" }
 export const DEFAULT_ENTRY_DISPLAY_SETTINGS: EntryDisplaySettings = {
+  date: true,
+  payee: true,
+  note: true,
   status: true,
   code: false,
   transactionComment: false,
@@ -45,6 +51,9 @@ export const DEFAULT_ENTRY_DISPLAY_SETTINGS: EntryDisplaySettings = {
 }
 
 const ENTRY_DISPLAY_FIELDS: readonly (keyof EntryDisplaySettings)[] = [
+  "date",
+  "payee",
+  "note",
   "status",
   "code",
   "transactionComment",
@@ -54,9 +63,20 @@ const ENTRY_DISPLAY_FIELDS: readonly (keyof EntryDisplaySettings)[] = [
   "postingTags",
 ]
 
-const validEntryDisplayRecord = (record: Record<string, unknown>): record is Record<keyof EntryDisplaySettings, boolean> =>
-  hasOnly(record, ENTRY_DISPLAY_FIELDS) &&
-  ENTRY_DISPLAY_FIELDS.every((field) => typeof record[field] === "boolean")
+const OPTIONAL_ENTRY_DISPLAY_FIELDS: readonly (keyof EntryDisplaySettings)[] = ["date", "payee", "note"]
+
+const REQUIRED_ENTRY_DISPLAY_FIELDS = ENTRY_DISPLAY_FIELDS.filter(
+  (field) => !OPTIONAL_ENTRY_DISPLAY_FIELDS.includes(field),
+)
+
+type SavedEntryDisplaySettings =
+  & Pick<EntryDisplaySettings, Exclude<keyof EntryDisplaySettings, "date" | "payee" | "note">>
+  & Partial<Pick<EntryDisplaySettings, "date" | "payee" | "note">>
+
+const validEntryDisplayRecord = (record: Record<string, unknown>): record is SavedEntryDisplaySettings =>
+  hasOnlyWithOptional(record, ENTRY_DISPLAY_FIELDS, OPTIONAL_ENTRY_DISPLAY_FIELDS) &&
+  REQUIRED_ENTRY_DISPLAY_FIELDS.every((field) => typeof record[field] === "boolean") &&
+  OPTIONAL_ENTRY_DISPLAY_FIELDS.every((field) => record[field] === undefined || typeof record[field] === "boolean")
 
 export const validEntryDisplaySettings = (settings: EntryDisplaySettings): boolean =>
   ENTRY_DISPLAY_FIELDS.every((field) => typeof settings[field] === "boolean")
@@ -123,7 +143,7 @@ export const bookConfigFromFiles = (
   const entryDisplay = value.entryDisplay === undefined
     ? DEFAULT_ENTRY_DISPLAY_SETTINGS
     : isRecord(value.entryDisplay) && validEntryDisplayRecord(value.entryDisplay)
-      ? value.entryDisplay
+      ? { ...DEFAULT_ENTRY_DISPLAY_SETTINGS, ...value.entryDisplay }
       : undefined
   if (entryDisplay === undefined) return Err({ kind: "invalid-shape" })
   return validDocumentSettings(documentSettings) && validImportSettings(importSettings) && reports.ok

@@ -10,6 +10,9 @@ const config = {
   imports: { csvFolder: "imports/csv", rulesFolder: "imports/rules" },
   accountSort: "alphabetical" as const,
   entryDisplay: {
+    date: true,
+    payee: true,
+    note: true,
     status: true,
     code: true,
     transactionComment: true,
@@ -41,6 +44,23 @@ describe("the configuration that travels with a book", () => {
         imports: DEFAULT_BOOK_CONFIG.imports,
         accountSort: "chart",
         entryDisplay: DEFAULT_BOOK_CONFIG.entryDisplay,
+      },
+    })
+  })
+
+  test("fills new entry display fields when an older settings file has them missing", () => {
+    const { date: _date, payee: _payee, note: _note, ...legacyDisplay } = config.entryDisplay
+    const files = {
+      [BOOK_CONFIG_PATH]: JSON.stringify({ ...config, entryDisplay: legacyDisplay }),
+    }
+    expect(bookConfigFromFiles(files)).toEqual({
+      ok: true,
+      value: {
+        ...config,
+        entryDisplay: {
+          ...DEFAULT_BOOK_CONFIG.entryDisplay,
+          ...legacyDisplay,
+        },
       },
     })
   })

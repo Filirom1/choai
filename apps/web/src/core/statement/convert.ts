@@ -2,6 +2,7 @@ import type { Draft } from "~/core/compose/draft"
 import { formatMixed } from "~/core/hledger/amount"
 import { ask } from "~/core/hledger/client"
 import type { Posting, Transaction, Trouble } from "~/core/hledger/wire"
+import { payeeAndNote } from "~/core/journal/description"
 import { readAside } from "~/core/journal/store"
 import { Ok, type Result } from "~/core/lib/monad"
 import type { Accounts, Picked } from "./accounts"
@@ -78,14 +79,6 @@ export const matchedOnce = (keys: readonly string[], books: ReadonlyMap<string, 
     },
     { left: books, found: [] },
   ).found
-
-/** hledger's description read apart the way it reads it: the payee, and the note after the first bar. */
-const payeeAndNote = (description: string): { readonly payee: string; readonly note: string } => {
-  const bar = description.indexOf("|")
-  return bar < 0
-    ? { payee: description.trim(), note: "" }
-    : { payee: description.slice(0, bar).trim(), note: description.slice(bar + 1).trim() }
-}
 
 const draftOf = (entry: Transaction): Draft => ({
   date: entry.tdate,

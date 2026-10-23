@@ -71,13 +71,17 @@ test("entry status marks are visible by default and metadata follows book settin
   await openTheDemo(page)
   await page.getByRole("button", { name: "Edit the text", exact: true }).first().click()
   await page.getByRole("button", { name: "transactions.journal", exact: true }).click()
+  await expect(page.getByRole("textbox", { name: "transactions.journal", exact: true })).toBeVisible()
+  await expect(page.locator(".journal-text-editor .tok-number").first()).toBeVisible()
+  await expect(page.locator(".journal-text-editor")).toContainText("landlord")
+  await expect(page.locator(".journal-text-editor")).toContainText("expenses:rent")
 
   const read = await page.evaluate(() => window.choai.journal.text({ path: "transactions.journal" }))
   expect(read.ok).toBe(true)
   if (!read.ok) return
   const changed = read.value.text.replace("2026-01-05 landlord", "2026-01-05 * (INV-42) landlord")
   expect(changed).not.toBe(read.value.text)
-  await page.locator("textarea").fill(changed)
+  await page.locator(".journal-text-editor .cm-content").fill(changed)
   await page.getByRole("button", { name: "Save", exact: true }).click()
   await expect(page.getByRole("button", { name: "Save", exact: true })).toBeDisabled()
   await page.getByRole("button", { name: "Journal", exact: true }).first().click()

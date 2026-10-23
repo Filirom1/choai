@@ -1,6 +1,7 @@
 import { Show, type JSX } from "solid-js"
 
 import { Button } from "~/core/components/ui/button"
+import { JournalTextEditor } from "~/core/components/journal-text-editor"
 import { t } from "~/core/i18n"
 
 /**
@@ -18,13 +19,12 @@ export function EntryText(props: {
 }): JSX.Element {
   return (
     <div class="flex flex-col gap-2">
-      <textarea
-        class="min-h-40 w-full resize-y rounded-md border border-input bg-background p-2 font-mono text-xs leading-relaxed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-        spellcheck={false}
-        autocapitalize="off"
-        autocorrect="off"
+      <JournalTextEditor
+        mode="journal"
+        class="min-h-40"
+        label={t("compose.willBeWritten")}
         value={props.text}
-        onInput={(event) => props.onText(event.currentTarget.value)}
+        onChange={props.onText}
       />
       <Show
         when={!props.keptAsText}

@@ -23,12 +23,20 @@ import { appName } from "~/edition"
 import { changedOnDisk, journal, localFolderHasPending, reloadLocalFolder, reopenKept, saveToLocalFolder, type LocalTrouble } from "~/core/journal/store"
 import { isGitHubRemote, isGoogleDriveRemote } from "~/core/journal/remote"
 import { agreements as githubAgreements, token as githubToken } from "~/core/github/kept"
-import { exportUnknown as exportGitHub, inspect as inspectGitHub, pull as githubPull, push as githubPush, resolve as resolveGitHub, unsent as githubUnsent, type Snag as GitHubSnag, type ResolutionFailure as GitHubResolutionFailure } from "~/core/github/sync"
+import { exportBinaryResolution as exportGitHub, inspect as inspectGitHub, pull as githubPull, push as githubPush, resolve as resolveGitHub, unsent as githubUnsent, type Snag as GitHubSnag, type ResolutionFailure as GitHubResolutionFailure } from "~/core/github/sync"
 import type { FileSnapshot } from "~/core/sync/conflict"
 import { forgetResolution, resolutionsFor } from "~/core/sync/kept"
-import { agreementRevision as driveAgreementRevision, checkRevision as driveCheckRevision, clientId as driveClientId, clientIdNow as driveClientIdNow, keepClientId as keepDriveClientId } from "~/core/google-drive/kept"
+import { remoteReviewRequest } from "~/core/sync/review-request"
+import {
+  noteRemoteChangePaths,
+  noteRemoteChangeSnapshots,
+  noteRemoteChangesChecking,
+  noteRemoteChangesUnavailable,
+  remoteChangesNow,
+} from "~/core/sync/remote-changes"
+import { agreementRevision as driveAgreementRevision, checkRevision as driveCheckRevision, clientId as driveClientId, clientIdNow as driveClientIdNow, keepClientId as keepDriveClientId, noteDriveChecked } from "~/core/google-drive/kept"
 import { accessToken as driveAccessToken, loadIdentity as loadDriveIdentity, sessionToken as driveSessionToken } from "~/core/google-drive/auth"
-import { behind as driveBehind, exportUnknownResolution as exportDrive, inspectResolution as inspectDrive, pull as drivePull, push as drivePush, resolveResolution as resolveDrive, unsent as driveUnsent, type Snag as DriveTrouble, type ResolutionFailure as DriveResolutionFailure } from "~/core/google-drive"
+import { behind as driveBehind, exportBinaryResolution as exportDrive, inspectResolution as inspectDrive, pull as drivePull, push as drivePush, resolveResolution as resolveDrive, unsent as driveUnsent, type Snag as DriveTrouble, type ResolutionFailure as DriveResolutionFailure } from "~/core/google-drive"
 import { exportLocalResolution, inspectLocalResolution, resolveLocalResolution, type LocalResolutionFailure } from "~/core/journal/local-resolution"
 import { permitLocalFolder } from "~/core/journal/local"
 import { behindNow, refreshBehind } from "~/core/components/git/kept-in-view"
@@ -45,8 +53,9 @@ import { ComposePanel } from "~/core/compose/ComposePanel"
 import { EntryEditor } from "~/core/compose/EntryEditor"
 import { editing, stopEditingEntry } from "~/core/compose/editing"
 import { LAYER_OF, dock, dockedAs, seatDock, type InTheDock } from "~/core/dock"
-import { JOURNAL, appPath, atTheList, atTheWork, dockedIn, readFragment, showsTheWork, withLayer } from "~/core/address/address"
+import { JOURNAL, REMOTES, appPath, atTheList, atTheWork, dockedIn, readFragment, showsTheWork, withLayer } from "~/core/address/address"
 import { useMoves } from "~/core/address/moves"
+import { addressOf, lookingAt } from "~/core/components/git/looking"
 import { narrow, overHalf, viewportWidth } from "~/core/lib/narrow"
 import { actionFor } from "~/core/lib/shortcuts"
 import { ShortcutsHelp } from "~/core/components/shortcuts-help"
@@ -442,6 +451,10 @@ export function Layout(props: ParentProps) {
 
   /** The view being shown, which is what the explorer beside it belongs to. */
   const current = (): View => viewAt(appPath(location.pathname))
+  const explorerKey = (): string => {
+    const book = getOrUndefined(journal())
+    return `${current().href}:${book?.bookId ?? ""}:${JSON.stringify(book?.remote)}:${book?.local?.handle.name ?? ""}`
+  }
 
   /**
    * The heading a rail button sits under, where it says it has one.
@@ -597,7 +610,9 @@ export function Layout(props: ParentProps) {
             onClose={drawerOpen() ? toggleChrome : undefined}
             closeLabel={t("nav.closeMenu")}
           >
-            <Dynamic component={current().Explorer} onChosen={chose} />
+            <Show when={explorerKey()} keyed>
+              <Dynamic component={current().Explorer} onChosen={chose} />
+            </Show>
           </SidePanel>
         }
         aux={
@@ -652,27 +667,30 @@ export function Layout(props: ParentProps) {
           class="flex min-h-full flex-col"
           style={{ "--stuck-above": snapped() && !chromeShowing() ? "2.25rem" : "0px" }}
         >
-          <BackupNotice saveRequest={saveRequest} />
-          {/* Above the work rather than in it, and only where the work is a
-              screen of its own: with the rail and the explorer put away there
-              is nothing else on this screen that leads back to them. Sticky,
-              because the work below it scrolls, and its height is what
-              --stuck-above tells the work to pin its own headings under. */}
-          <Show when={snapped() && !chromeShowing()}>
-            <button
-              type="button"
-              onClick={toggleChrome}
-              aria-label={t("nav.back")}
-              title={t("nav.back")}
-              class="sticky top-0 z-10 flex h-9 w-full items-center gap-1 border-b border-border bg-background px-2 text-sm font-medium text-muted-foreground"
-            >
-              <ChevronLeftIcon class="h-4 w-4" />
-              <span class="truncate">{current().label()}</span>
-            </button>
-          </Show>
-          {/* A phone has no width to spare, and the scrollbar already keeps
-              the right edge off the glass, so the gutter there is its own. */}
-          <div class={`flex flex-1 flex-col ${snapped() ? "py-4 pl-2 pr-0" : "p-4"}`}>{props.children}</div>
+          <BackupNotice saveRequest={saveRequest}>
+            <>
+              {/* Above the work rather than in it, and only where the work is a
+                  screen of its own: with the rail and the explorer put away there
+                  is nothing else on this screen that leads back to them. Sticky,
+                  because the work below it scrolls, and its height is what
+                  --stuck-above tells the work to pin its own headings under. */}
+              <Show when={snapped() && !chromeShowing()}>
+                <button
+                  type="button"
+                  onClick={toggleChrome}
+                  aria-label={t("nav.back")}
+                  title={t("nav.back")}
+                  class="sticky top-0 z-10 flex h-9 w-full items-center gap-1 border-b border-border bg-background px-2 text-sm font-medium text-muted-foreground"
+                >
+                  <ChevronLeftIcon class="h-4 w-4" />
+                  <span class="truncate">{current().label()}</span>
+                </button>
+              </Show>
+              {/* A phone has no width to spare, and the scrollbar already keeps
+                  the right edge off the glass, so the gutter there is its own. */}
+              <div class={`flex flex-1 flex-col ${snapped() ? "py-4 pl-2 pr-0" : "p-4"}`}>{props.children}</div>
+            </>
+          </BackupNotice>
         </div>
       </Shell>
     </>
@@ -721,6 +739,12 @@ const syncAttentionWords = (attention: SyncAttention): string =>
     ? t("remotes.syncChanged", { files: attention.files.join(", ") })
     : t("remotes.syncCheck")
 
+const noteRemoteAttention = (bookId: string, attention: SyncAttention | undefined): void => {
+  if (attention === undefined) noteRemoteChangePaths(bookId, [])
+  else if (attention.at === "changed") noteRemoteChangePaths(bookId, attention.files)
+  else noteRemoteChangesUnavailable(bookId)
+}
+
 const isLocalFolderActive = (current: { readonly local?: unknown; readonly remote?: unknown }): boolean =>
   current.local !== undefined && current.remote === undefined
 
@@ -750,7 +774,9 @@ const renderResolutionFailure = (failure: SyncResolutionFailure): JSX.Element =>
   return <p class="text-sm text-error-foreground">{t("syncResolution.failed")}</p>
 }
 
-function BackupNotice(props: { readonly saveRequest: Accessor<number> }): JSX.Element {
+function BackupNotice(props: { readonly saveRequest: Accessor<number>; readonly children: JSX.Element }): JSX.Element {
+  const location = useLocation()
+  const moves = useMoves()
   const open = () => getOrUndefined(journal())
   const [driveIdentityStatus, setDriveIdentityStatus] = createSignal<"loading" | "ready" | "failed">("loading")
   const [checkRevision, setCheckRevision] = createSignal(0)
@@ -758,6 +784,25 @@ function BackupNotice(props: { readonly saveRequest: Accessor<number> }): JSX.El
   const [syncMessage, setSyncMessage] = createSignal<string | undefined>()
   const [syncFailure, setSyncFailure] = createSignal<SyncFailure | undefined>()
   const [conflicts, setConflicts] = createSignal<readonly FileSnapshot[] | undefined>()
+  const [selectedConflictPath, setSelectedConflictPath] = createSignal<string | undefined>()
+  const onRemotePage = (): boolean => appPath(location.pathname) === REMOTES
+  const selectedPath = (): string | undefined => {
+    if (!onRemotePage()) return undefined
+    const addressSelection = lookingAt(location.hash)
+    return addressSelection.at === "remote-change" || addressSelection.at === "change"
+      ? addressSelection.path
+      : selectedConflictPath()
+  }
+  createEffect(on(() => `${location.pathname}${location.hash}`, () => {
+    const addressSelection = onRemotePage() ? lookingAt(location.hash) : undefined
+    setSelectedConflictPath(
+      addressSelection?.at === "remote-change" || addressSelection?.at === "change"
+        ? addressSelection.path
+        : undefined,
+    )
+  }))
+  const reviewingRemoteChange = (): boolean =>
+    onRemotePage() && lookingAt(location.hash).at === "remote-change"
   const [savedResolutions] = createResource(
     () => {
       const current = open()
@@ -769,7 +814,10 @@ function BackupNotice(props: { readonly saveRequest: Accessor<number> }): JSX.El
     const current = open()
     if (saved?.ok && current !== undefined && conflicts() === undefined) {
       const latest = saved.value.reduce((found, session) => session.createdAt > (found?.createdAt ?? 0) ? session : found, undefined as typeof saved.value[number] | undefined)
-      if (latest?.bookId === current.bookId) setConflicts(latest.snapshots)
+      if (latest?.bookId === current.bookId) {
+        setConflicts(latest.snapshots)
+        noteRemoteChangeSnapshots(current.bookId, latest.snapshots)
+      }
     }
   }))
   onMount(() => {
@@ -777,6 +825,7 @@ function BackupNotice(props: { readonly saveRequest: Accessor<number> }): JSX.El
     const refresh = (): void => {
       setCheckRevision((revision) => revision + 1)
       refreshBehind()
+      noteDriveChecked()
     }
     const visible = (): void => {
       if (document.visibilityState === "visible") refresh()
@@ -806,20 +855,32 @@ function BackupNotice(props: { readonly saveRequest: Accessor<number> }): JSX.El
       const current = open()
       if (current === undefined) return undefined
       if (isGitHubRemote(current.remote) && current.remote.path !== "") {
-        if (await githubToken() === undefined) return { at: "check" }
+        noteRemoteChangesChecking(current.bookId)
+        if (await githubToken() === undefined) {
+          noteRemoteChangesUnavailable(current.bookId)
+          return { at: "check" }
+        }
         const inspected = await inspectGitHub()
-        return inspected.ok
+        const attention: SyncAttention | undefined = inspected.ok
           ? inspected.value.length > 0 ? { at: "changed", files: inspected.value.map(({ path }) => path) } : undefined
           : { at: "check" }
+        noteRemoteAttention(current.bookId, attention)
+        return attention
       }
       if (isGoogleDriveRemote(current.remote) && current.remote.path !== "") {
+        noteRemoteChangesChecking(current.bookId)
         const id = await driveClientId()
         const session = id === undefined ? undefined : driveSessionToken(id)
-        if (session === undefined) return { at: "check" }
+        if (session === undefined) {
+          noteRemoteChangesUnavailable(current.bookId)
+          return { at: "check" }
+        }
         const result = await driveBehind()
-        return result.ok
+        const attention: SyncAttention | undefined = result.ok
           ? result.value.length > 0 ? { at: "changed", files: result.value } : undefined
           : { at: "check" }
+        noteRemoteAttention(current.bookId, attention)
+        return attention
       }
       if (current.local !== undefined) {
         const result = await changedOnDisk(current)
@@ -843,11 +904,18 @@ function BackupNotice(props: { readonly saveRequest: Accessor<number> }): JSX.El
       else {
         if (inspected.value.length > 0) {
           setConflicts(inspected.value)
+          setSyncMessage(t("remotes.reviewInRemote"))
+          noteRemoteChangeSnapshots(current.bookId, inspected.value)
         } else {
+          noteRemoteChangeSnapshots(current.bookId, [])
           const pending = await githubUnsent(open() ?? current)
           const result = pending.length > 0 ? await githubPush() : await githubPull()
           if (result.ok) setSyncMessage(t("remotes.syncDone"))
-          else if (result.error.at === "diverged" && result.error.snapshot !== undefined) setConflicts([result.error.snapshot])
+          else if (result.error.at === "diverged" && result.error.snapshot !== undefined) {
+            setConflicts([result.error.snapshot])
+            setSyncMessage(t("remotes.reviewInRemote"))
+            noteRemoteChangeSnapshots(current.bookId, [result.error.snapshot])
+          }
           else setSyncFailure({ at: "github", snag: result.error })
         }
       }
@@ -860,14 +928,23 @@ function BackupNotice(props: { readonly saveRequest: Accessor<number> }): JSX.El
         await keepDriveClientId(id)
         const inspected = await inspectDrive()
         if (!inspected.ok) setSyncFailure({ at: "drive", snag: inspected.error })
-        else if (inspected.value.length > 0) setConflicts(inspected.value)
+        else if (inspected.value.length > 0) {
+          setConflicts(inspected.value)
+          setSyncMessage(t("remotes.reviewInRemote"))
+          noteRemoteChangeSnapshots(current.bookId, inspected.value)
+        }
         else {
+          noteRemoteChangeSnapshots(current.bookId, [])
           const pending = await driveUnsent(open() ?? current)
           const result = pending.length > 0 ? await drivePush() : await drivePull()
           if (result.ok) setSyncMessage(t("remotes.syncDone"))
           else if (result.error.at === "conflict" || result.error.at === "local-changes") {
             const refreshed = await inspectDrive()
-            if (refreshed.ok && refreshed.value.length > 0) setConflicts(refreshed.value)
+            if (refreshed.ok && refreshed.value.length > 0) {
+              setConflicts(refreshed.value)
+              setSyncMessage(t("remotes.reviewInRemote"))
+              noteRemoteChangeSnapshots(current.bookId, refreshed.value)
+            }
             else setSyncMessage(t("syncResolution.providerUnavailable", { files: result.error.path }))
           } else setSyncFailure({ at: "drive", snag: result.error })
         }
@@ -878,8 +955,13 @@ function BackupNotice(props: { readonly saveRequest: Accessor<number> }): JSX.El
       else {
         const inspected = await inspectLocalResolution()
         if (!inspected.ok) setSyncFailure({ at: "local", trouble: localFailureAsTrouble(inspected.error) })
-        else if (inspected.value.length > 0) setConflicts(inspected.value)
+        else if (inspected.value.length > 0) {
+          setConflicts(inspected.value)
+          setSyncMessage(t("remotes.reviewInRemote"))
+          noteRemoteChangeSnapshots(current.bookId, inspected.value)
+        }
         else {
+          noteRemoteChangeSnapshots(current.bookId, [])
           const latest = open() ?? current
           const changed = await changedOnDisk(latest)
           if (!changed.ok) setSyncFailure({ at: "local", trouble: changed.error })
@@ -899,6 +981,7 @@ function BackupNotice(props: { readonly saveRequest: Accessor<number> }): JSX.El
     } else setSyncMessage(t("remotes.syncDone"))
     setCheckRevision((revision) => revision + 1)
     refreshBehind()
+    noteDriveChecked()
     setSyncing(false)
   }
   const refreshComparison = async (): Promise<void> => {
@@ -914,19 +997,46 @@ function BackupNotice(props: { readonly saveRequest: Accessor<number> }): JSX.El
     if (inspected === undefined) setConflicts(undefined)
     else if (!inspected.ok) {
       if (isGitHubRemote(current.remote)) setSyncFailure({ at: "github", snag: inspected.error as GitHubSnag })
-      else if (isGoogleDriveRemote(current.remote)) setSyncFailure({ at: "drive", snag: inspected.error as DriveTrouble })
+      else if (isGoogleDriveRemote(current.remote)) {
+        setSyncFailure({ at: "drive", snag: inspected.error as DriveTrouble })
+        noteRemoteChangesUnavailable(current.bookId)
+      }
       else setSyncFailure({ at: "local", trouble: localFailureAsTrouble(inspected.error as LocalResolutionFailure) })
-    } else if (inspected.value.length > 0) setConflicts(inspected.value)
+    } else if (inspected.value.length > 0) {
+      setConflicts(inspected.value)
+      noteRemoteChangeSnapshots(current.bookId, inspected.value)
+    }
     else {
       const saved = await resolutionsFor(current.bookId)
       const forgotten = saved.ok ? await Promise.all(saved.value.map((session) => forgetResolution(session.id))) : []
       setConflicts(undefined)
+      noteRemoteChangeSnapshots(current.bookId, [])
       setSyncMessage(saved.ok && forgotten.every((result) => result.ok)
         ? t("syncResolution.noConflicts")
         : t("syncResolution.storageFailed"))
     }
+    noteDriveChecked()
     setSyncing(false)
   }
+  createEffect(on(remoteReviewRequest, (request) => {
+    if (request === undefined) return
+    setSyncMessage(undefined)
+    setSelectedConflictPath(request.path)
+    const current = open()
+    const cached = remoteChangesNow()
+    if (
+      current !== undefined &&
+      cached?.bookId === current.bookId &&
+      cached.at === "ready" &&
+      cached.snapshots !== undefined
+    ) {
+      setSyncFailure(undefined)
+      setConflicts(cached.snapshots)
+      return
+    }
+    if (syncing()) return
+    void refreshComparison()
+  }))
   const [hasUnsentFile, { refetch }] = createResource(
     () => {
       const current = open()
@@ -947,9 +1057,15 @@ function BackupNotice(props: { readonly saveRequest: Accessor<number> }): JSX.El
   )
   const show = (): boolean =>
     (open()?.remote !== undefined || open()?.local !== undefined) && hasUnsentFile() === true
+  const openRemoteReview = (): void => moves.goTo(REMOTES)
+  const selectedConflict = (): FileSnapshot | undefined =>
+    conflicts()?.find(({ path }) => path === selectedPath())
 
   return (
-    <>
+    <Show when={selectedConflict()} fallback={
+      <>
+      <Show when={!reviewingRemoteChange()}>
+        <>
       <Show when={syncAttention()}>{(attention) => (
         <aside class="mb-3 flex flex-wrap items-center gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm" role="alert">
           <CloudIcon class="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
@@ -959,19 +1075,54 @@ function BackupNotice(props: { readonly saveRequest: Accessor<number> }): JSX.El
           <Button size="sm" variant="outline" disabled={syncing() || (isGoogleDriveRemote(open()?.remote) && driveIdentityStatus() === "loading")} onClick={() => void syncLatest()}>{syncing() ? t("remotes.syncing") : t("remotes.syncNow")}</Button>
         </aside>
       )}</Show>
-      <Show when={syncMessage()}>{(message) => <p role="status" class="mb-3 text-sm text-muted-foreground">{message()}</p>}</Show>
+      <Show when={syncMessage()}>{(message) => <div role="status" class="mb-3 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+        <p>{message()}</p>
+        <Show when={(conflicts()?.length ?? 0) > 0 && !onRemotePage()}>
+          <Button size="sm" variant="outline" onClick={openRemoteReview}>{t("remotes.openRemote")}</Button>
+        </Show>
+      </div>}</Show>
       <Show when={syncFailure()}>{(failure) => <div class="mb-3 flex flex-col gap-1"><p class="text-sm text-error-foreground">{t("remotes.syncFailed")}</p>{syncFailureView(failure())}</div>}</Show>
-      <Show when={conflicts()}>{(snapshots) => {
+      <Show when={show()}>
+        <aside class="mb-3 flex flex-wrap items-center gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm" aria-label={t("remotes.warningTitle")}>
+          <CloudIcon class="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
+          <div class="min-w-0 flex-1">
+            <p class="font-medium">{t("remotes.warningTitle")}</p>
+            <p class="text-xs text-muted-foreground">{t("remotes.warningBody")}</p>
+          </div>
+          <BackupButton onSaved={refetch} saveRequest={props.saveRequest} />
+        </aside>
+      </Show>
+        </>
+      </Show>
+      {props.children}
+      </>
+    }>
+      {(snapshot) => {
         const current = open()
-        return current === undefined ? undefined : <div class="mb-3">
+        const snapshots = conflicts()
+        return current === undefined || snapshots === undefined ? undefined : <div class="mb-3">
           <SyncResolutionPanel
             bookId={current.bookId}
-            snapshots={snapshots()}
-            onLater={() => setConflicts(undefined)}
+            snapshots={snapshots}
+            selectedPath={snapshot().path}
+            onLater={() => {
+              setSelectedConflictPath(undefined)
+              moves.goTo(REMOTES)
+            }}
             onApplied={() => {
               setConflicts(undefined)
+              setSelectedConflictPath(undefined)
+              noteRemoteChangeSnapshots(current.bookId, [])
+              moves.goTo(REMOTES)
               setCheckRevision((revision) => revision + 1)
               refreshBehind()
+              noteDriveChecked()
+            }}
+            onSnapshotsChange={(remaining, nextPath) => {
+              setConflicts(remaining)
+              noteRemoteChangeSnapshots(current.bookId, remaining)
+              setSelectedConflictPath(nextPath)
+              moves.goTo(nextPath === undefined ? REMOTES : addressOf({ at: "remote-change", path: nextPath }))
             }}
             onRefresh={() => void refreshComparison()}
             resolveFile={(snapshot, choice) => isGitHubRemote(current.remote)
@@ -990,17 +1141,7 @@ function BackupNotice(props: { readonly saveRequest: Accessor<number> }): JSX.El
             warning={isGoogleDriveRemote(current.remote) ? t("syncResolution.driveWarning") : isLocalFolderActive(current) ? t("syncResolution.localWarning") : undefined}
           />
         </div>
-      }}</Show>
-      <Show when={show()}>
-        <aside class="mb-3 flex flex-wrap items-center gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm" aria-label={t("remotes.warningTitle")}>
-          <CloudIcon class="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
-          <div class="min-w-0 flex-1">
-            <p class="font-medium">{t("remotes.warningTitle")}</p>
-            <p class="text-xs text-muted-foreground">{t("remotes.warningBody")}</p>
-          </div>
-          <BackupButton onSaved={refetch} saveRequest={props.saveRequest} />
-        </aside>
-      </Show>
-    </>
+      }}
+    </Show>
   )
 }

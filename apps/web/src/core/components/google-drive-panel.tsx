@@ -3,11 +3,11 @@ import { For, Show, createResource, createSignal, onMount, type JSX } from "soli
 import { Button } from "~/core/components/ui/button"
 import { TextField, TextFieldInput, TextFieldLabel } from "~/core/components/ui/text-field"
 import { TroubleNote } from "~/core/components/trouble-note"
-import { accessToken, behind as checkBehind, clientId, clientIdNow, forgetSession, getFileContent, getFileMetadata, keepClientId, listFilesInFolder, listSharedWithMe, listStarred, loadIdentity, pull, pullAsNewBook, push, unsent as listUnsent, type DriveFile, type Failure, type Outcome, type Snag } from "~/core/google-drive/index"
+import { accessToken, behind as checkBehind, clientId, clientIdNow, FOLDER_MIME, forgetSession, getFileContent, getFileMetadata, keepClientId, listDriveFilesBelow, listFilesInFolder, listSharedWithMe, listStarred, loadIdentity, pull, pullAsNewBook, push, unsent as listUnsent, type DriveFile, type Outcome, type Snag } from "~/core/google-drive/index"
 import { journal, setRemote as setBookRemote } from "~/core/journal/store"
 import { putDown } from "~/core/journal/switching"
 import type { GoogleDriveRemote } from "~/core/journal/remote"
-import { Err, Ok, getOrUndefined, type Result } from "~/core/lib/monad"
+import { Err, Ok, getOrUndefined } from "~/core/lib/monad"
 import { includedBy } from "~/core/journal/layout"
 import { t } from "~/core/i18n"
 import { noteDriveChecked } from "~/core/google-drive/kept"
@@ -199,13 +199,15 @@ export function GoogleDrivePanel(props: { readonly bound: GoogleDriveBound }): J
     const token = driveToken()
     const folder = folderTrail().at(-1)
     if (token === undefined || folder === undefined || folder.id === SHARED_ROOT || folder.id === STARRED_ROOT) return
-    const files = await filesBelow(token, folder.id)
+    const files = await listDriveFilesBelow(token, folder.id)
     if (!files.ok) {
       if (files.error.kind === "unauthorised") forgetSession()
       setSnag({ at: "drive", failure: files.error })
       return
     }
-    const journals = files.value.filter(({ path }) => /\.(journal|hledger|ledger)$/i.test(path))
+    const journals = files.value.filter(({ path, file }) =>
+      file.mimeType !== FOLDER_MIME && /\.(journal|hledger|ledger)$/i.test(path),
+    )
     const contents = await Promise.all(journals.map(async ({ path, file }) => {
       const body = await getFileContent(token, file.id)
       return body.ok ? Ok({ path, text: body.value }) : Err(body.error)
@@ -244,7 +246,10 @@ export function GoogleDrivePanel(props: { readonly bound: GoogleDriveBound }): J
   })
   const checkRemote = (): Promise<void> => run(async () => {
     const result = await checkBehind()
-    if (!result.ok) setSnag(result.error)
+    if (!result.ok) {
+      if (result.error.at === "drive" && result.error.failure.kind === "unauthorised") forgetSession()
+      setSnag(result.error)
+    }
     else {
       noteDriveChecked()
       setBehindFiles(result.value)
@@ -334,31 +339,6 @@ export function GoogleDrivePanel(props: { readonly bound: GoogleDriveBound }): J
   )
 }
 
-interface DriveLocatedFile {
-  readonly path: string
-  readonly file: DriveFile
-}
-
-const filesBelow = async (
-  token: string,
-  folderId: string,
-  prefix = "",
-  visited: ReadonlySet<string> = new Set(),
-): Promise<Result<readonly DriveLocatedFile[], Failure>> => {
-  if (visited.has(folderId)) return Ok([])
-  const listed = await listFilesInFolder(token, folderId)
-  if (!listed.ok) return Err(listed.error)
-  const nextVisited = new Set([...visited, folderId])
-  const branches = await Promise.all(listed.value.map(async (file) => {
-    const path = prefix === "" ? file.name : `${prefix}/${file.name}`
-    if (file.mimeType !== "application/vnd.google-apps.folder") return Ok([{ path, file }])
-    return filesBelow(token, file.id, path, nextVisited)
-  }))
-  const failed = branches.find((branch) => !branch.ok)
-  if (failed !== undefined && !failed.ok) return Err(failed.error)
-  return Ok(branches.flatMap((branch) => branch.ok ? branch.value : []))
-}
-
 const isJournalFile = (file: DriveFile): boolean =>
   file.mimeType !== "application/vnd.google-apps.folder" &&
   (file.mimeType.startsWith("text/") || /\.(journal|hledger|ledger|txt)$/i.test(file.name))
@@ -407,8 +387,10 @@ const snagWords = (snag: Snag): string => {
       switch (snag.failure.kind) {
         case "offline": return t("gdrive.offline")
         case "unauthorised": return t("gdrive.unauthorised")
+        case "revision-not-downloadable": return t("gdrive.revisionNotDownloadable")
         case "no-such-file": return t("gdrive.noSuchFile")
         case "conflict": return t("gdrive.conflict", { path: "" })
+        case "protected-revision": return t("gdrive.revisionProtected")
         case "refused": return t("gdrive.refused", { status: snag.failure.status })
       }
   }

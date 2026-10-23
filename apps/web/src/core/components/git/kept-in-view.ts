@@ -66,11 +66,15 @@ const [moved, { refetch: refetchMoved }] = createRoot(() =>
     },
   ),
 )
+const [behindRevision, setBehindRevision] = createSignal(0)
 
 /** The files GitHub has moved on from here; empty where there is nothing to take, or no way to know. */
 export const behindNow = (): readonly string[] => moved() ?? []
 
+export const behindRevisionNow: Accessor<number> = behindRevision
+
 export const refreshBehind = (): void => {
+  setBehindRevision((revision) => revision + 1)
   void refetchMoved()
 }
 

@@ -754,8 +754,10 @@ const RICH = [
 
 const writeRichEntry = async (page: Page): Promise<void> => {
   await page.goto("/journal/source#transactions.journal")
-  const box = page.locator("textarea")
-  await box.fill((await box.inputValue()) + RICH)
+  const box = page.locator(".journal-text-editor .cm-content")
+  await box.click()
+  await box.press("ControlOrMeta+End")
+  await page.keyboard.insertText(RICH)
   await page.getByRole("button", { name: /^Save$|^保存$/ }).first().click()
 
   await expect

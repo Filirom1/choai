@@ -9,7 +9,7 @@ import { getOrUndefined } from "~/core/lib/monad"
 import { compactImage } from "~/core/lib/image"
 import { readPicture, type Trouble as OcrTrouble } from "~/core/lib/ocr/client"
 import { PaperclipIcon } from "~/core/lib/ui/icons"
-import { journal } from "~/core/journal/store"
+import { journal, loadAttachment } from "~/core/journal/store"
 import { documents } from "~/core/journal/book-settings"
 import { t } from "~/core/i18n"
 
@@ -31,6 +31,14 @@ export function DocumentField(props: {
     const folder = `${documents().folder}/`
     return getOrUndefined(journal())?.source.attachments.filter(({ path }) => path.startsWith(folder)) ?? []
   }
+  const existingDocument = (path: string) =>
+    getOrUndefined(journal())?.source.attachments.find((attachment) => attachment.path === path)
+  const canReadSelectedDocument = (): boolean => {
+    if (props.file !== undefined) return isOcrCompatible(props.file.type, props.file.name)
+    if (props.path === undefined) return false
+    const attachment = existingDocument(props.path)
+    return attachment !== undefined && isOcrCompatible(attachment.type, attachment.path)
+  }
   const matchingDocuments = createMemo(() => {
     const query = searchKey(search().trim())
     return existingDocuments()
@@ -40,7 +48,7 @@ export function DocumentField(props: {
   const visibleDocuments = createMemo(() => matchingDocuments().slice(0, visibleCount()))
 
   createEffect(() => {
-    if (props.file !== undefined) return
+    if (props.file !== undefined || props.path !== undefined) return
     setRecognitionAttempt((attempt) => attempt + 1)
     setRecognition({ kind: "idle" })
     props.onRecognisedText?.([])
@@ -51,15 +59,27 @@ export function DocumentField(props: {
     setRecognition({ kind: "idle" })
     props.onRecognisedText?.([])
     props.onSelect(selection)
+    if (selection?.kind === "file" && isOcrCompatible(selection.file.type, selection.file.name)) {
+      void readFileText(selection.file)
+    }
+    if (selection?.kind === "existing") {
+      const attachment = existingDocument(selection.path)
+      if (attachment !== undefined && isOcrCompatible(attachment.type, attachment.path)) {
+        void readExistingText(selection.path)
+      }
+    }
   }
 
-  const readText = async (): Promise<void> => {
-    const file = props.file
-    if (file === undefined) return
+  const beginReading = (): number => {
     const attempt = recognitionAttempt() + 1
     setRecognitionAttempt(attempt)
     setRecognition({ kind: "reading" })
-    const result = await readPicture(file)
+    props.onRecognisedText?.([])
+    return attempt
+  }
+
+  const finishReading = async (picture: Blob, attempt: number): Promise<void> => {
+    const result = await readPicture(picture)
     if (recognitionAttempt() !== attempt) return
     if (!result.ok) {
       props.onRecognisedText?.([])
@@ -73,6 +93,36 @@ export function DocumentField(props: {
     )]
     props.onRecognisedText?.(text)
     setRecognition(text.length > 0 ? { kind: "read" } : { kind: "blank" })
+  }
+
+  const readFileText = async (file: File): Promise<void> =>
+    finishReading(file, beginReading())
+
+  const readExistingText = async (path: string): Promise<void> => {
+    const attempt = beginReading()
+    const book = getOrUndefined(journal())
+    if (book === undefined) {
+      setRecognition({ kind: "unavailable" })
+      return
+    }
+    let picture: Blob | undefined
+    try {
+      picture = await loadAttachment(book.bookId, path)
+    } catch {
+      if (recognitionAttempt() === attempt) setRecognition({ kind: "unavailable" })
+      return
+    }
+    if (recognitionAttempt() !== attempt) return
+    if (picture === undefined) {
+      setRecognition({ kind: "unavailable" })
+      return
+    }
+    await finishReading(picture, attempt)
+  }
+
+  const readSelectedText = (): void => {
+    if (props.file !== undefined) void readFileText(props.file)
+    else if (props.path !== undefined) void readExistingText(props.path)
   }
 
   return (
@@ -144,8 +194,8 @@ export function DocumentField(props: {
         <Button variant="outline" size="sm" disabled={props.disabled} onClick={() => camera?.click()}>
           {t("compose.takePhoto")}
         </Button>
-        <Show when={props.file}>
-          <Button variant="outline" size="sm" disabled={props.disabled || recognition().kind === "reading"} onClick={() => void readText()}>
+        <Show when={canReadSelectedDocument()}>
+          <Button variant="outline" size="sm" disabled={props.disabled || recognition().kind === "reading"} onClick={readSelectedText}>
             {t("compose.readText")}
           </Button>
         </Show>
@@ -231,6 +281,7 @@ type Recognition =
   | { readonly kind: "reading" }
   | { readonly kind: "read" }
   | { readonly kind: "blank" }
+  | { readonly kind: "unavailable" }
   | { readonly kind: "failed"; readonly trouble: OcrTrouble }
 
 const recognitionMessage = (recognition: Recognition): string => {
@@ -241,6 +292,8 @@ const recognitionMessage = (recognition: Recognition): string => {
       return t("compose.readingText")
     case "read":
       return t("compose.textSuggested")
+    case "unavailable":
+      return t("compose.documentUnavailable")
     case "blank":
       return t("receipts.failed.blank")
     case "failed":
@@ -250,3 +303,6 @@ const recognitionMessage = (recognition: Recognition): string => {
 
 const searchKey = (value: string): string =>
   value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase()
+
+const isOcrCompatible = (type: string, path: string): boolean =>
+  type.startsWith("image/") || /\.(?:avif|bmp|gif|jpe?g|png|tiff?|webp)$/i.test(path)

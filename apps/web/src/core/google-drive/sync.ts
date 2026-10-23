@@ -10,7 +10,7 @@ import { accessToken, sessionToken } from "./auth"
 import { companionsIn } from "~/core/journal/companions"
 import { hledgerLatestPaths, isHiddenPath as hiddenPath, isHledgerLatestPath } from "~/core/journal/hidden"
 import { includedBy } from "~/core/journal/layout"
-import { automaticAdditions, captureFile, sameVersions, type CapturedVersion, type FileSnapshot, type ResolutionChoice } from "~/core/sync/conflict"
+import { captureFile, sameVersions, type CapturedVersion, type FileSnapshot, type ResolutionChoice } from "~/core/sync/conflict"
 import {
   FOLDER_MIME,
   createBinary,
@@ -209,17 +209,7 @@ const take = async (
     if (located === undefined) return undefined
     const blob = await getFileBlob(token, located.file.id)
     if (!blob.ok) return undefined
-    const metadata = attachments.find((item) => item.path === path)
-    if (metadata !== undefined) {
-      await putAttachments(bookId, [{ ...metadata, blob: blob.value }])
-      const version = await binaryVersion(blob.value)
-      if (version.ok && version.value.content?.kind === "binary") {
-        await agree(bookId, {
-          ...agreementOf(path, located.file, ""),
-          baseBinary: { size: version.value.content.size, fingerprint: version.value.content.fingerprint ?? "" },
-        })
-      }
-    }
+    await keepAttachment(bookId, path, located.file, blob.value)
     return blob.value
   })
   return Ok({ did: "pulled", files: fetched.length + attachments.length })
@@ -543,6 +533,39 @@ const binaryVersion = async (blob: Blob, identity?: string): Promise<Result<Capt
   }
 }
 
+const keepAttachment = async (bookId: string, path: string, file: DriveFile, blob: Blob): Promise<void> => {
+  const metadata: Attachment = {
+    path,
+    type: mimeOf(file) ?? (file.mimeType || "application/octet-stream"),
+    size: Number(file.size ?? 0),
+  }
+  await putAttachments(bookId, [{ ...metadata, blob }])
+  const version = await binaryVersion(blob)
+  if (version.ok && version.value.content?.kind === "binary") {
+    await agree(bookId, {
+      ...agreementOf(path, file, ""),
+      baseBinary: { size: version.value.content.size, fingerprint: version.value.content.fingerprint ?? "" },
+    })
+  }
+}
+
+export const fetchAttachment = async (
+  token: string,
+  bookId: string,
+  remote: GoogleDriveRemote,
+  path: string,
+): Promise<Result<Blob, Snag>> => {
+  if (!safePath(path)) return Err({ at: "no-place" })
+  const tree = await filesIn(token, remote)
+  if (!tree.ok) return tree
+  const located = tree.value.find((item) => item.path === path)
+  if (located === undefined) return Err({ at: "drive", failure: { kind: "no-such-file" } })
+  const blob = await getFileBlob(token, located.file.id)
+  if (!blob.ok) return Err({ at: "drive", failure: blob.error })
+  await keepAttachment(bookId, path, located.file, blob.value)
+  return blob
+}
+
 const cachedBinaryIsUnchanged = async (
   bookId: string,
   path: string,
@@ -678,8 +701,7 @@ export const inspectResolution = async (): Promise<Result<readonly FileSnapshot[
       baseBinary: { size: snapshot.destination.content.size, fingerprint: snapshot.destination.content.fingerprint ?? "" },
     })
   }))
-  const adopted = await adoptRemoteAdditions(automaticAdditions(relevant))
-  return adopted.ok ? Ok(relevant.filter(({ state }) => state !== "added-destination")) : adopted
+  return Ok(relevant)
 }
 
 const currentDriveSnapshot = async (
@@ -759,18 +781,6 @@ export const resolveResolution = async (
   return [snapshot.local, snapshot.destination].some((version) => version.content?.kind === "binary")
     ? resolveDriveBinary(token, open, open.remote, current.value.file, snapshot, choice)
     : resolveDriveText(token, open, open.remote, current.value.file, snapshot, choice)
-}
-
-const adoptRemoteAdditions = async (snapshots: readonly FileSnapshot[]): Promise<Result<void, Snag>> => {
-  const [snapshot, ...later] = snapshots
-  if (snapshot === undefined) return Ok(undefined)
-  const adopted = await resolveResolution(snapshot, { take: "destination" })
-  if (!adopted.ok) {
-    const failure = adopted.error
-    if (failure.at === "drive" || failure.at === "hledger") return Err(failure)
-    return Err({ at: "conflict", path: snapshot.path })
-  }
-  return adoptRemoteAdditions(later)
 }
 
 const resolveDriveText = async (
@@ -908,8 +918,8 @@ const resolveDriveBinary = async (
   return Ok(undefined)
 }
 
-export const exportUnknownResolution = async (snapshot: FileSnapshot): Promise<Result<Blob, ResolutionFailure>> => {
-  if (snapshot.role !== "unknown" || snapshot.destination.content?.kind !== "binary") return Err({ at: "unsupported", path: snapshot.path })
+export const exportBinaryResolution = async (snapshot: FileSnapshot): Promise<Result<Blob, ResolutionFailure>> => {
+  if (snapshot.role === "accounting" || snapshot.destination.content?.kind !== "binary") return Err({ at: "unsupported", path: snapshot.path })
   const open = getOrUndefined(journal())
   if (open === undefined || open.bookId !== snapshot.bookId || !isGoogleDriveRemote(open.remote)) return Err({ at: "stale", path: snapshot.path })
   const token = await credentials()
@@ -926,3 +936,5 @@ export const exportUnknownResolution = async (snapshot: FileSnapshot): Promise<R
     ? Ok(blob.value)
     : Err({ at: "stale", path: snapshot.path })
 }
+
+export const exportUnknownResolution = exportBinaryResolution

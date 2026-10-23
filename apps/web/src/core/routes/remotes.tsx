@@ -26,11 +26,15 @@ export default function Remotes(): JSX.Element {
   const looking = () => lookingAt(pageOf(location.hash))
   const changing = () => {
     const now = looking()
-    return now.at === "change" ? now.path : ""
+    return now.at === "local-change" || now.at === "change" ? now.path : ""
   }
   const selectedDriveRevision = () => {
     const now = looking()
     return now.at === "drive-history" ? now.revision : undefined
+  }
+  const selectedDriveFile = () => {
+    const now = looking()
+    return now.at === "drive-history" ? now.path : undefined
   }
   const showingLocal = (): boolean =>
     looking().at === "local" || current()?.local !== undefined
@@ -60,6 +64,9 @@ export default function Remotes(): JSX.Element {
     if (provider === "local") void setLocalFolderActive()
     const destination = choices.find((choice) => choice.provider === provider)
     if (destination !== undefined) moves.goTo(addressOf(destination.looking))
+  }
+  if (looking().at === "remote-change") {
+    return <p role="status" class="text-sm text-muted-foreground">{t("remotes.checkingRemoteChanges")}</p>
   }
   return (
     <div class="flex w-full flex-col gap-5">
@@ -106,7 +113,7 @@ export default function Remotes(): JSX.Element {
       <Show when={showingLocal()} fallback={
         <Show when={showingDrive()} fallback={<Git />}>
           <Show when={looking().at === "drive-history"} fallback={
-            <Show when={looking().at === "change"} fallback={
+            <Show when={looking().at === "local-change" || looking().at === "change"} fallback={
               <Show when={current() === undefined || importingFromDrive()} fallback={
                 <>
                   <Button type="button" variant="outline" onClick={() => setImportingFromDrive(true)}>
@@ -129,14 +136,15 @@ export default function Remotes(): JSX.Element {
             <Show when={driveRemote()}>{(remote) => (
               <GoogleDriveHistory
                 remote={remote()}
+                path={selectedDriveFile()}
                 revision={selectedDriveRevision()}
-                onChoose={(revision) => moves.goTo(addressOf({ at: "drive-history", revision }))}
+                onChoose={(path, revision) => moves.goTo(addressOf({ at: "drive-history", path, revision }))}
               />
             )}</Show>
           </Show>
         </Show>
       }>
-        <Show when={looking().at === "change"} fallback={
+        <Show when={looking().at === "local-change" || looking().at === "change"} fallback={
           <Show when={current()?.local} fallback={<p class="text-sm text-muted-foreground">{t("local.notLinked")}</p>}>
             <LocalSyncPanel />
           </Show>

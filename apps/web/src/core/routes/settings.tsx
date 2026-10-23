@@ -34,6 +34,9 @@ export const SECTIONS: readonly Section[] = [
 ]
 
 const ENTRY_DISPLAY_OPTIONS: readonly { readonly field: keyof EntryDisplaySettings; readonly label: () => string }[] = [
+  { field: "date", label: () => t("settings.entryDate") },
+  { field: "payee", label: () => t("settings.entryPayee") },
+  { field: "note", label: () => t("settings.entryNote") },
   { field: "status", label: () => t("settings.entryStatus") },
   { field: "code", label: () => t("settings.entryCode") },
   { field: "transactionComment", label: () => t("settings.entryComment") },

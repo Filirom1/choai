@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createSignal, on, type JSX } from "solid-js"
+import { For, Show, createEffect, createSignal, on, onCleanup, type JSX } from "solid-js"
 
 import { Button } from "~/core/components/ui/button"
 import { SnagNote } from "~/core/components/github-panel"
@@ -8,12 +8,16 @@ import { t } from "~/core/i18n"
 import { forgetResolution, keepResolution, resolutionsFor } from "~/core/sync/kept"
 import { appendMergeProposal, choiceText, diffSections, diffText, sameVersions, type DiffLine, type FileSnapshot, type ResolutionChoice, type ResolutionSession } from "~/core/sync/conflict"
 import type { Result } from "~/core/lib/monad"
+import { JournalTextEditor } from "~/core/components/journal-text-editor"
+import { syntaxForSource } from "~/core/journal/source-syntax"
 
 export function SyncResolutionPanel<F>(props: {
   readonly bookId: string
   readonly snapshots: readonly FileSnapshot[]
+  readonly selectedPath: string
   readonly onLater: () => void
   readonly onApplied: () => void
+  readonly onSnapshotsChange: (snapshots: readonly FileSnapshot[], selectedPath?: string) => void
   readonly onRefresh: () => void
   readonly resolveFile: (snapshot: FileSnapshot, choice: ResolutionChoice) => Promise<Result<void, F>>
   readonly exportFile: (snapshot: FileSnapshot) => Promise<Result<Blob, F>>
@@ -30,6 +34,9 @@ export function SyncResolutionPanel<F>(props: {
   const [previewing, setPreviewing] = createSignal<string>()
   const [previewed, setPreviewed] = createSignal<ReadonlySet<string>>(new Set())
   const [previewFailure, setPreviewFailure] = createSignal<{ readonly path: string; readonly trouble: import("~/core/hledger/wire").Trouble }>()
+  const [bulkChoice, setBulkChoice] = createSignal<"local" | "destination">()
+  const [imagePreview, setImagePreview] = createSignal<{ readonly path: string; readonly url: string; readonly key: string }>()
+  const [imageLoad, setImageLoad] = createSignal(0)
 
   createEffect(on(() => props.snapshots, (snapshots) => {
     const restore = async (): Promise<void> => {
@@ -96,7 +103,66 @@ export function SyncResolutionPanel<F>(props: {
     }
     const next = { ...current, snapshots: remaining, choices }
     setSession(next)
-    setStorageFailed(!(await keepResolution(next)).ok)
+    const kept = await keepResolution(next)
+    setStorageFailed(!kept.ok)
+    props.onSnapshotsChange(remaining, kept.ok ? undefined : remaining[0]?.path)
+  }
+
+  const applyBulk = async (
+    current: ResolutionSession,
+    remaining: readonly FileSnapshot[],
+    take: "local" | "destination",
+  ): Promise<void> => {
+    const [snapshot, ...after] = remaining
+    if (snapshot === undefined) return
+    setBusy(snapshot.path)
+    setFailure(undefined)
+    const result = await props.resolveFile(snapshot, { take })
+    setBusy(undefined)
+    if (!result.ok) {
+      setFailure({ path: snapshot.path, reason: result.error })
+      props.onSnapshotsChange(current.snapshots, snapshot.path)
+      if (props.isStale(result.error)) await props.onRefresh()
+      return
+    }
+    const choices = Object.fromEntries(Object.entries(current.choices).filter(([path]) => path !== snapshot.path))
+    if (after.length === 0) {
+      const forgotten = await forgetResolution(current.id)
+      setStorageFailed(!forgotten.ok)
+      setSession(undefined)
+      props.onApplied()
+      if (!forgotten.ok) await props.onRefresh()
+      return
+    }
+    const next = { ...current, snapshots: after, choices }
+    setSession(next)
+    const kept = await keepResolution(next)
+    setStorageFailed(!kept.ok)
+    if (!kept.ok) {
+      props.onSnapshotsChange(after, after[0]?.path)
+      return
+    }
+    await applyBulk(next, after, take)
+  }
+
+  const applyAll = async (take: "local" | "destination"): Promise<void> => {
+    const current = session()
+    if (current === undefined || current.snapshots.length < 2 ||
+      current.snapshots.some(({ role }) => role === "unknown")) return
+    const prompt = take === "destination"
+      ? t("syncResolution.takeAllDestinationConfirm", { count: current.snapshots.length })
+      : t("syncResolution.keepAllLocalConfirm", { count: current.snapshots.length })
+    if (!window.confirm(prompt)) return
+    const choices = Object.fromEntries(current.snapshots.map(({ path }) => [path, { take }]))
+    const prepared = { ...current, choices: { ...current.choices, ...choices } }
+    setSession(prepared)
+    setFailure(undefined)
+    const kept = await keepResolution(prepared)
+    setStorageFailed(!kept.ok)
+    if (!kept.ok) return
+    setBulkChoice(take)
+    await applyBulk(prepared, prepared.snapshots, take)
+    setBulkChoice(undefined)
   }
 
   const exportFile = async (snapshot: FileSnapshot): Promise<void> => {
@@ -138,7 +204,7 @@ export function SyncResolutionPanel<F>(props: {
 
   const defer = async (snapshot: FileSnapshot): Promise<void> => {
     await saveChoice(snapshot.path, { take: "later" })
-    await apply(snapshot)
+    props.onLater()
   }
 
   const candidateText = (snapshot: FileSnapshot): string | undefined => {
@@ -147,6 +213,72 @@ export function SyncResolutionPanel<F>(props: {
   }
 
   const previewKey = (snapshot: FileSnapshot): string => JSON.stringify([snapshot.path, candidateText(snapshot) ?? null])
+  const selectedSnapshots = (): readonly FileSnapshot[] =>
+    session()?.snapshots.filter(({ path }) => path === props.selectedPath) ?? []
+  const bulkAvailable = (): boolean => session()?.snapshots.every(({ role }) => role !== "unknown") === true
+  const imageType = (path: string): string | undefined => ({
+    bmp: "image/bmp",
+    gif: "image/gif",
+    jpeg: "image/jpeg",
+    jpg: "image/jpeg",
+    png: "image/png",
+    webp: "image/webp",
+  }[path.split(".").at(-1)?.toLowerCase() ?? ""])
+  const imageCaptureKey = (snapshot: FileSnapshot): string => JSON.stringify([
+    snapshot.path,
+    snapshot.destination.identity,
+    snapshot.destination.fingerprint,
+    snapshot.destination.content?.kind === "binary" ? snapshot.destination.content.size : undefined,
+  ])
+  const selectedImage = (): { readonly snapshot: FileSnapshot; readonly type: string; readonly key: string } | undefined => {
+    const snapshot = session()?.snapshots.find(({ path }) => path === props.selectedPath)
+    const type = snapshot === undefined ? undefined : imageType(snapshot.path)
+    return snapshot !== undefined && snapshot.destination.content?.kind === "binary" && type !== undefined
+      ? { snapshot, type, key: imageCaptureKey(snapshot) }
+      : undefined
+  }
+
+  createEffect(() => {
+    const preview = imagePreview()
+    if (preview !== undefined) onCleanup(() => URL.revokeObjectURL(preview.url))
+  })
+
+  const loadImagePreview = async (snapshot: FileSnapshot, type: string, key: string): Promise<void> => {
+    const request = imageLoad() + 1
+    setImageLoad(request)
+    setBusy(snapshot.path)
+    setFailure(undefined)
+    const result = await props.exportFile(snapshot)
+    if (imageLoad() !== request || selectedImage()?.key !== key) return
+    setBusy(undefined)
+    if (!result.ok) {
+      setFailure({ path: snapshot.path, reason: result.error })
+      if (props.isStale(result.error)) await props.onRefresh()
+      return
+    }
+    const blob = new Blob([result.value], { type })
+    setImagePreview({ path: snapshot.path, url: URL.createObjectURL(blob), key })
+  }
+
+  createEffect(on(selectedImage, (selected) => {
+    if (selected === undefined) {
+      setImageLoad((request) => request + 1)
+      setBusy(undefined)
+      setImagePreview(undefined)
+      return
+    }
+    if (imagePreview()?.key === selected.key) return
+    setImagePreview(undefined)
+    void loadImagePreview(selected.snapshot, selected.type, selected.key)
+  }))
+
+  const toggleImagePreview = (snapshot: FileSnapshot, type: string): void => {
+    if (imagePreview()?.path === snapshot.path) {
+      setImagePreview(undefined)
+      return
+    }
+    void loadImagePreview(snapshot, type, imageCaptureKey(snapshot))
+  }
 
   const review = async (snapshot: FileSnapshot): Promise<void> => {
     const text = candidateText(snapshot)
@@ -180,7 +312,30 @@ export function SyncResolutionPanel<F>(props: {
       </div>
       <Show when={storageFailed()}><p class="text-sm text-error-foreground" role="alert">{t("syncResolution.storageFailed")}</p></Show>
       <Show when={session()} fallback={<p class="text-sm">{t("syncResolution.loading")}</p>}>
-        {(current) => <For each={current().snapshots}>{(snapshot) => {
+        {(current) => <>
+        <Show when={current().snapshots.length > 1}>
+          <div class="flex flex-wrap gap-2" role="group" aria-label={t("syncResolution.bulkActions")}>
+            <Show when={bulkAvailable()} fallback={<p class="w-full text-xs text-muted-foreground">{t("syncResolution.bulkUnsupported")}</p>}>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy() !== undefined || bulkChoice() !== undefined}
+                onClick={() => void applyAll("destination")}
+              >
+                {bulkChoice() === "destination" ? t("syncResolution.takingAllDestination") : t("syncResolution.takeAllDestination")}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy() !== undefined || bulkChoice() !== undefined}
+                onClick={() => void applyAll("local")}
+              >
+                {bulkChoice() === "local" ? t("syncResolution.keepingAllLocal") : t("syncResolution.keepAllLocal")}
+              </Button>
+            </Show>
+          </div>
+        </Show>
+        <For each={selectedSnapshots()}>{(snapshot) => {
           const choice = (): ResolutionChoice | undefined => current().choices[snapshot.path]
           const localText = snapshot.local.content?.kind === "text" ? snapshot.local.content.text : ""
           const destinationText = snapshot.destination.content?.kind === "text" ? snapshot.destination.content.text : ""
@@ -211,6 +366,7 @@ export function SyncResolutionPanel<F>(props: {
           }
           const problem = () => failure()?.path === snapshot.path ? failure() : undefined
           const previewProblem = () => previewFailure()?.path === snapshot.path ? previewFailure() : undefined
+          const syntax = () => syntaxForSource(snapshot.path)
           return <article class="flex flex-col gap-2 rounded border p-2" aria-label={snapshot.path}>
             <div class="flex flex-wrap items-baseline justify-between gap-2">
               <h3 class="font-medium">{snapshot.path}</h3>
@@ -236,11 +392,36 @@ export function SyncResolutionPanel<F>(props: {
                     : <DiffLines lines={section.lines} />}</For>
                 </div>
               </>}>
-                <p class="text-xs text-muted-foreground">{t("syncResolution.binaryDiff")}</p>
+                <div class="flex flex-col items-start gap-2">
+                  <p class="text-xs text-muted-foreground">{t("syncResolution.binaryDiff")}</p>
+                  <Show when={snapshot.destination.content?.kind === "binary" && imageType(snapshot.path)}>
+                    {(type) => <>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={busy() !== undefined || bulkChoice() !== undefined}
+                        onClick={() => toggleImagePreview(snapshot, type())}
+                      >
+                        {busy() === snapshot.path
+                          ? t("syncResolution.previewingImage")
+                          : imagePreview()?.path === snapshot.path
+                            ? t("syncResolution.hideImagePreview")
+                            : t("syncResolution.previewImage")}
+                      </Button>
+                      <Show when={imagePreview()?.path === snapshot.path}>
+                        <img
+                          src={imagePreview()?.url}
+                          alt={snapshot.path}
+                          class="max-h-[70vh] max-w-full rounded-md border border-border object-contain"
+                        />
+                      </Show>
+                    </>}
+                  </Show>
+                </div>
               </Show>
             </section>
             <Show when={props.exportRecovery !== undefined && snapshot.role !== "unknown"}>
-              <Button size="sm" variant="ghost" class="self-start" disabled={busy() !== undefined} onClick={() => void exportRecovery(snapshot)}>
+              <Button size="sm" variant="ghost" class="self-start" disabled={busy() !== undefined || bulkChoice() !== undefined} onClick={() => void exportRecovery(snapshot)}>
                 {busy() === snapshot.path ? t("syncResolution.exporting") : t("syncResolution.exportRecovery")}
               </Button>
             </Show>
@@ -248,31 +429,44 @@ export function SyncResolutionPanel<F>(props: {
               <div class="flex flex-col gap-2 rounded bg-muted p-2">
                 <p class="text-sm">{t("syncResolution.unknownFile")}</p>
                 <p class="text-xs text-muted-foreground">{t("syncResolution.capturedAt", { date: new Date(snapshot.capturedAt).toLocaleString() })}</p>
-                <Button size="sm" variant="outline" class="self-start" disabled={busy() !== undefined} onClick={() => void exportFile(snapshot)}>
+                <Button size="sm" variant="outline" class="self-start" disabled={busy() !== undefined || bulkChoice() !== undefined} onClick={() => void exportFile(snapshot)}>
                   {busy() === snapshot.path ? t("syncResolution.exporting") : t("syncResolution.exportDestination")}
                 </Button>
               </div>
             </Show>
             <div class="flex flex-wrap gap-2" role="group" aria-label={t("syncResolution.chooseFor", { path: snapshot.path })}>
               <Show when={snapshot.role !== "unknown"}>
-                <Button size="sm" variant={choice()?.take === "local" ? "default" : "outline"} disabled={busy() !== undefined || previewing() !== undefined} onClick={() => void chooseAndReview(snapshot, { take: "local" })}>{t("syncResolution.local")}</Button>
-                <Button size="sm" variant={choice()?.take === "destination" ? "default" : "outline"} disabled={busy() !== undefined || previewing() !== undefined} onClick={() => void chooseAndReview(snapshot, { take: "destination" })}>{t("syncResolution.destination")}</Button>
-                <Button size="sm" variant={choice()?.take === "manual" ? "default" : "outline"} disabled={busy() !== undefined || previewing() !== undefined || snapshot.role !== "accounting" || (snapshot.local.content?.kind !== "text" && snapshot.destination.content?.kind !== "text")} onClick={() => void chooseAndReview(snapshot, { take: "manual", text: manual() })}>{t("syncResolution.manual")}</Button>
+                <Button size="sm" variant={choice()?.take === "local" ? "default" : "outline"} disabled={busy() !== undefined || previewing() !== undefined || bulkChoice() !== undefined} onClick={() => void chooseAndReview(snapshot, { take: "local" })}>{t("syncResolution.local")}</Button>
+                <Button size="sm" variant={choice()?.take === "destination" ? "default" : "outline"} disabled={busy() !== undefined || previewing() !== undefined || bulkChoice() !== undefined} onClick={() => void chooseAndReview(snapshot, { take: "destination" })}>{t("syncResolution.destination")}</Button>
+                <Button size="sm" variant={choice()?.take === "manual" ? "default" : "outline"} disabled={busy() !== undefined || previewing() !== undefined || bulkChoice() !== undefined || snapshot.role !== "accounting" || (snapshot.local.content?.kind !== "text" && snapshot.destination.content?.kind !== "text")} onClick={() => void chooseAndReview(snapshot, { take: "manual", text: manual() })}>{t("syncResolution.manual")}</Button>
               </Show>
-              <Button size="sm" variant="ghost" disabled={busy() !== undefined} onClick={() => void defer(snapshot)}>{t("syncResolution.later")}</Button>
+              <Button size="sm" variant="ghost" disabled={busy() !== undefined || bulkChoice() !== undefined} onClick={() => void defer(snapshot)}>{t("syncResolution.later")}</Button>
             </div>
             <Show when={choice()?.take === "manual"}>
               <Show when={appendMergeProposal(snapshot)}><p class="text-xs text-muted-foreground">{t("syncResolution.mergeSuggestion")}</p></Show>
               <label class="flex flex-col gap-1 text-xs font-medium">
                 {t("syncResolution.editResult")}
-                <textarea class="min-h-40 w-full rounded-md border bg-background p-2 font-mono text-xs" value={manual()} onInput={(event) => void saveChoice(snapshot.path, { take: "manual", text: event.currentTarget.value })} />
+                <Show when={syntax()} fallback={
+                  <textarea class="min-h-40 w-full rounded-md border bg-background p-2 font-mono text-xs" disabled={bulkChoice() !== undefined} value={manual()} onInput={(event) => void saveChoice(snapshot.path, { take: "manual", text: event.currentTarget.value })} />
+                }>
+                  {(mode) => (
+                    <JournalTextEditor
+                      mode={mode()}
+                      class="min-h-40"
+                      label={t("syncResolution.editResult")}
+                      disabled={bulkChoice() !== undefined}
+                      value={manual()}
+                      onChange={(text) => void saveChoice(snapshot.path, { take: "manual", text })}
+                    />
+                  )}
+                </Show>
               </label>
             </Show>
             <Show when={choice() !== undefined && choice()?.take !== "later"}>
               <div class="flex flex-col gap-2 rounded bg-muted p-2">
                 <p class="text-sm">{summary()}</p>
                 <Show when={confirming() !== snapshot.path}>
-                  <Button class="self-start" size="sm" variant="outline" disabled={busy() !== undefined || previewing() !== undefined} onClick={() => void review(snapshot)}>
+                  <Button class="self-start" size="sm" variant="outline" disabled={busy() !== undefined || previewing() !== undefined || bulkChoice() !== undefined} onClick={() => void review(snapshot)}>
                     {previewing() === snapshot.path ? t("syncResolution.previewing") : t("syncResolution.review")}
                   </Button>
                 </Show>
@@ -282,8 +476,8 @@ export function SyncResolutionPanel<F>(props: {
                   </Show>
                   <p class="text-sm font-medium">{t("syncResolution.confirmPrompt")}</p>
                   <div class="flex flex-wrap gap-2">
-                    <Button size="sm" disabled={busy() !== undefined} onClick={() => void apply(snapshot)}>{busy() === snapshot.path ? t("remotes.syncing") : t("syncResolution.confirmApply")}</Button>
-                    <Button size="sm" variant="ghost" disabled={busy() !== undefined} onClick={() => setConfirming(undefined)}>{t("syncResolution.cancel")}</Button>
+                    <Button size="sm" disabled={busy() !== undefined || bulkChoice() !== undefined} onClick={() => void apply(snapshot)}>{busy() === snapshot.path ? t("remotes.syncing") : t("syncResolution.confirmApply")}</Button>
+                    <Button size="sm" variant="ghost" disabled={busy() !== undefined || bulkChoice() !== undefined} onClick={() => setConfirming(undefined)}>{t("syncResolution.cancel")}</Button>
                   </div>
                 </Show>
                 <Show when={previewProblem()}>
@@ -300,10 +494,11 @@ export function SyncResolutionPanel<F>(props: {
               </div>}
             </Show>
           </article>
-        }}</For>}
+        }}</For>
+        </>}
       </Show>
       <div class="flex flex-wrap gap-2">
-        <Button size="sm" variant="ghost" onClick={props.onLater}>{t("syncResolution.close")}</Button>
+        <Button size="sm" variant="ghost" disabled={bulkChoice() !== undefined} onClick={props.onLater}>{t("syncResolution.close")}</Button>
       </div>
     </section>
   )

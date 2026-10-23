@@ -124,25 +124,20 @@ test("a proposal taking the panel keeps it, rather than being closed by the entr
  */
 test("the header offers writing where the view writes, and importing everywhere", async ({ page }) => {
   await openTheDemo(page)
-  const icons = () =>
-    page
-      .locator("aside")
-      .first()
-      .locator("button[aria-label]")
-      .evaluateAll((all) => all.map((one) => one.getAttribute("aria-label")))
+  const newEntry = page.getByRole("button", { name: "New entry", exact: true })
   const ask = page.getByRole("button", { name: "AI import", exact: true })
 
-  await expect.poll(icons).toEqual(["New entry"])
+  await expect(newEntry).toBeVisible()
   await expect(ask).toBeVisible()
 
   await page.getByRole("button", { name: "Edit the text", exact: true }).first().click()
   await expect(page).toHaveURL(/\/source/)
-  await expect.poll(icons).toEqual(["New entry"])
+  await expect(newEntry).toBeVisible()
   await expect(ask).toBeVisible()
 
   // The statements write nothing, and are narrowed by the filters instead.
   await page.getByRole("button", { name: "Financial statements", exact: true }).first().click()
-  await expect.poll(icons).toEqual(["Filters"])
+  await expect(page.getByRole("button", { name: "Filters", exact: true })).toBeVisible()
+  await expect(newEntry).toBeHidden()
   await expect(ask).toBeVisible()
 })
-

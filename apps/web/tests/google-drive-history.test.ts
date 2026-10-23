@@ -1,10 +1,31 @@
 import { describe, expect, spyOn, test } from "bun:test"
 
-import { readDriveHistory } from "../src/core/google-drive/history"
+import { listDriveFilesBelow, readDriveHistory } from "../src/core/google-drive/history"
 
 const folder = "application/vnd.google-apps.folder"
 
 describe("Google Drive history", () => {
+  test("lists files and folders recursively with paths relative to the book folder", async () => {
+    const fetch = spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ files: [
+        { id: "folder", name: "receipts", mimeType: folder },
+        { id: "journal", name: "main.journal", mimeType: "text/plain" },
+      ] })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ files: [
+        { id: "receipt", name: "receipt.txt", mimeType: "text/plain" },
+      ] })))
+    const result = await listDriveFilesBelow("token", "root")
+    expect(result).toEqual({
+      ok: true,
+      value: [
+        { path: "receipts", file: { id: "folder", name: "receipts", mimeType: folder } },
+        { path: "receipts/receipt.txt", file: { id: "receipt", name: "receipt.txt", mimeType: "text/plain" } },
+        { path: "main.journal", file: { id: "journal", name: "main.journal", mimeType: "text/plain" } },
+      ],
+    })
+    fetch.mockRestore()
+  })
+
   test("resolves the selected journal below its folder and orders revisions newest first", async () => {
     const fetch = spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response(JSON.stringify({ files: [{ id: "nested", name: "books", mimeType: folder }] })))

@@ -23,6 +23,11 @@ const openTheDemo = async (page: Page): Promise<void> => {
   await page.evaluate(() => window.choai.ready)
   await page.getByRole("button", { name: "Try the demo" }).click()
   await expect(page).toHaveURL(/\/journal#work$/)
+  const books = page.getByRole("button", { name: "Which books these are" })
+  await books.click()
+  const demo = page.getByRole("button", { name: "a demo journal", exact: true })
+  await expect(demo).toBeVisible()
+  await demo.click()
 
   await expect
     .poll(async () => {

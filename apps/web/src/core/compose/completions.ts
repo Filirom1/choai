@@ -1,4 +1,5 @@
 import type { Completions, Transaction } from "~/core/hledger/wire"
+import { payeeAndNote } from "~/core/journal/description"
 import type { OfferedTag } from "~/edition/types"
 import type { Tag } from "./draft"
 
@@ -24,7 +25,7 @@ export const composeCompletions = (
 ): ComposeCompletions => ({
   payees: unique([
     ...(known?.payees ?? []),
-    ...entries.map((entry) => entry.tdescription.split("|", 1)[0]?.trim() ?? ""),
+    ...entries.map((entry) => payeeAndNote(entry.tdescription).payee),
   ]),
   tags: uniqueTags([
     ...(known?.tags ?? []).map((name) => ({ name, value: "" })),
