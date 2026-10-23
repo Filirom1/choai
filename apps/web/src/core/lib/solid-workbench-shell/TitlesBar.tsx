@@ -5,11 +5,8 @@ import { Show, type JSX } from 'solid-js'
  * and right; the middle takes children, typically tabs, laid out with horizontal
  * scroll. Knows nothing about any domain.
  *
- * `center` is a slot of another kind: it is centred on the bar itself rather
- * than on the space left over, the way that editor centres its command box.
- * Laying it out in the row cannot do that — it would sit halfway between the two
- * side slots, which is off centre by half their difference — so it is laid over
- * the row. It stays narrower than the bar so the sides remain reachable.
+ * `center` is centred on the bar on wide windows, and takes the room left
+ * between the side slots on narrow ones.
  *
  * It is as wide as whatever is put in it and no wider. A slot given a width of
  * its own would decide how much of the bar the middle takes without knowing what
@@ -24,22 +21,23 @@ export function TitlesBar(props: {
   children?: JSX.Element
 }): JSX.Element {
   return (
-    <div class="relative flex h-8 shrink-0 items-center gap-1 border-b border-border bg-card px-1.5 text-[13px]">
+    <div class="relative flex h-8 shrink-0 items-center gap-1 border-b border-border bg-card px-1.5 text-[13px] max-[900px]:h-12">
       <Show when={props.left}>
-        <div class="flex shrink-0 items-center gap-1">{props.left}</div>
-      </Show>
-      <div class="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">{props.children}</div>
-      <Show when={props.right}>
-        <div class="flex shrink-0 items-center gap-0.5">{props.right}</div>
+        <div class="flex shrink-0 items-center gap-2 max-[900px]:gap-3">{props.left}</div>
       </Show>
       <Show when={props.center}>
-        {/* Only what hangs here takes the pointer; the strip it hangs in has to
-            let presses through to whatever is under it. It is as wide as its
-            occupant and no wider, since a wide invisible strip across the middle
-            of the bar would swallow presses meant for what is under it. */}
-        <div class="pointer-events-none absolute inset-x-0 flex justify-center">
-          <div class="pointer-events-auto">{props.center}</div>
+        <div class="pointer-events-none absolute inset-x-0 flex justify-center max-[900px]:pointer-events-auto max-[900px]:relative max-[900px]:inset-auto max-[900px]:min-w-0 max-[900px]:flex-1 max-[900px]:justify-center max-[900px]:focus-within:absolute max-[900px]:focus-within:inset-0 max-[900px]:focus-within:z-20 max-[900px]:focus-within:bg-card">
+          <div class="pointer-events-auto min-w-0 max-[900px]:flex max-[900px]:h-full max-[900px]:w-full max-[900px]:max-w-[80vw] max-[900px]:items-center">{props.center}</div>
         </div>
+      </Show>
+      <Show when={props.children}>
+        <div class="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">{props.children}</div>
+      </Show>
+      <Show when={!props.children}>
+        <div class="min-w-0 flex-1 max-[900px]:hidden" />
+      </Show>
+      <Show when={props.right}>
+        <div data-title-slot="right" class="flex shrink-0 items-center gap-0.5">{props.right}</div>
       </Show>
     </div>
   )

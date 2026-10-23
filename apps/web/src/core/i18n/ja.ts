@@ -93,6 +93,8 @@ export const ja: Dictionary = {
     settings: "設定",
     showPanels: "サイドバーを表示",
     hidePanels: "サイドバーを隠す",
+    closeMenu: "メニューを閉じる",
+    dismissMenu: "メニューの外側を押して閉じる",
     expandSidebar: "サイドバーを展開",
     collapseSidebar: "サイドバーを折りたたむ",
     back: "一覧に戻る",

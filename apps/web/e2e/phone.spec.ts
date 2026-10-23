@@ -40,6 +40,7 @@ const explorer = (page: Page) => page.getByRole("button", { name: "All accounts"
 const listRegion = (page: Page) => page.locator("aside").first()
 const anAccount = (page: Page) => page.getByRole("button", { name: "food", exact: true })
 const back = (page: Page) => page.getByRole("button", { name: "Back to the list" })
+const closeMenu = (page: Page) => page.getByRole("button", { name: "Close menu", exact: true })
 
 test("a narrow window opens on the work, with the list a press away", async ({ page }) => {
   await page.setViewportSize(PHONE)
@@ -52,16 +53,18 @@ test("a narrow window opens on the work, with the list a press away", async ({ p
 
   await back(page).click()
 
-  // Reaching the far edge, rather than merely being wide: the work is behind it
-  // rather than beside it. Polled because the widths are animated, and half way
-  // through one they are neither the old answer nor the new.
-  await expect
-    .poll(async () => {
-      const list = (await listRegion(page).boundingBox())!
-      return Math.round(list.x + list.width)
-    })
-    .toBeGreaterThanOrEqual(PHONE.width - 1)
-  await expect(back(page)).toBeHidden()
+  const menuButton = page.getByRole("button", { name: "Hide sidebars" })
+  const buttonBounds = (await menuButton.boundingBox())!
+  expect(buttonBounds.width).toBeGreaterThanOrEqual(44)
+  expect(buttonBounds.height).toBeGreaterThanOrEqual(44)
+
+  await expect(closeMenu(page)).toBeVisible()
+  const list = (await listRegion(page).boundingBox())!
+  expect(list.x + list.width).toBeLessThan(PHONE.width * 0.8)
+  await expect(page.locator("main")).toBeVisible()
+
+  await closeMenu(page).click()
+  await expect(back(page)).toBeVisible()
 })
 
 test("choosing in the list is how the work is reached, and there is a way back", async ({

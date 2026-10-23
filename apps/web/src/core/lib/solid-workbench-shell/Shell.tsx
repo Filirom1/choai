@@ -28,7 +28,7 @@ export function Shell(props: {
       style={{ height: 'calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom))' }}
     >
       {props.titles}
-      <div class="flex min-h-0 flex-1">
+      <div class="relative flex min-h-0 flex-1">
         {props.activity}
         {props.panel}
         <MainContent onBackgroundClick={props.onMainBackgroundClick}>{props.children}</MainContent>

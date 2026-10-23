@@ -30,6 +30,8 @@ export const en = {
     settings: "Settings",
     showPanels: "Show sidebars",
     hidePanels: "Hide sidebars",
+    closeMenu: "Close menu",
+    dismissMenu: "Dismiss menu",
     expandSidebar: "Expand sidebar",
     collapseSidebar: "Collapse sidebar",
     back: "Back to the list",

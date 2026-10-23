@@ -60,6 +60,21 @@ for (const { what, width } of WINDOWS) {
     expect(box.x).toBeGreaterThan(named.x + named.width)
     // And it is still something somebody could type into.
     expect(box.width).toBeGreaterThanOrEqual(88)
+    const right = (await page.locator("[data-title-slot=right]").boundingBox())!
+    expect(right.x + right.width).toBeGreaterThanOrEqual(width - 8)
+    if (width > 900) expect(box.width).toBeGreaterThanOrEqual(300)
+    if (width <= 900) {
+      expect(box.x + box.width).toBeLessThan(right.x)
+      expect(right.x - (box.x + box.width)).toBeLessThanOrEqual(8)
+
+      await search.click()
+      await expect.poll(async () => (await search.boundingBox())!.width).toBeGreaterThan(box.width)
+      const focused = (await search.boundingBox())!
+      const focusWidth = width * 0.8
+      expect(focused.width).toBeCloseTo(focusWidth, 0)
+      expect(focused.x).toBeCloseTo((width - focusWidth) / 2, 0)
+      expect(focused.y).toBeCloseTo(11.5, 0)
+    }
   })
 }
 
@@ -71,7 +86,7 @@ test("it widens only while it has the cursor, whatever is in it", async ({ page 
   const idle = (await search.boundingBox())!.width
 
   await search.fill("acct:expenses")
-  await expect.poll(async () => (await search.boundingBox())!.width).toBeGreaterThan(idle * 2)
+  await expect.poll(async () => (await search.boundingBox())!.width).toBeGreaterThan(idle + 64)
 
   // Put away, it gives the room back and still holds the query, whole on hover.
   await page.locator("body").click({ position: { x: 5, y: 400 } })
@@ -87,7 +102,7 @@ test("it widens only while it has the cursor, whatever is in it", async ({ page 
 
   // Ctrl+P is asking for it.
   await page.keyboard.press("Control+p")
-  await expect.poll(async () => (await search.boundingBox())!.width).toBeGreaterThan(idle * 2)
+  await expect.poll(async () => (await search.boundingBox())!.width).toBeGreaterThan(idle + 64)
 })
 
 /**

@@ -148,6 +148,7 @@ export function Layout(props: ParentProps) {
    * them.
    */
   const listed = (): boolean => !showsTheWork(moves.fragment())
+  const drawerOpen = (): boolean => snapped() && listed()
   const railShown = (): boolean => (snapped() ? listed() : railVisible())
   const panelShown = (): boolean => (snapped() ? listed() : panelOpen())
   const chromeShowing = (): boolean => railShown() || panelShown()
@@ -163,6 +164,8 @@ export function Layout(props: ParentProps) {
 
   /** What the explorer is pinned to when it has the window to itself. */
   const wholeWindow = (): number => Math.max(1, viewportWidth() - RAIL - EDGES)
+  const drawerPanelWidth = (): number =>
+    Math.max(1, viewportWidth() * 0.76 - (railExpanded() ? 208 : RAIL) - EDGES)
 
   /**
    * The list has done its job, so the work is what to look at.
@@ -488,7 +491,7 @@ export function Layout(props: ParentProps) {
                   onClick={toggleChrome}
                   aria-label={chromeShowing() ? t("nav.hidePanels") : t("nav.showPanels")}
                   title={chromeShowing() ? t("nav.hidePanels") : t("nav.showPanels")}
-                  class="inline-flex size-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  class="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground max-[900px]:size-11"
                 >
                   <PanelLeftIcon class="h-4 w-4" />
                 </button>
@@ -547,39 +550,52 @@ export function Layout(props: ParentProps) {
           />
         }
         activity={
-          <ActivityBar
-            class={SLIDE}
-            visible={railShown()}
-            items={buttonsFor(NAV)}
-            footer={buttonsFor(FOOT)}
-            expanded={railExpanded()}
-            onToggle={() => setRailExpanded((expanded) => !expanded)}
-            expandLabel={t("nav.expandSidebar")}
-            collapseLabel={t("nav.collapseSidebar")}
-            // The trigger arrives already built, so Kobalte gets a wrapper to
-            // attach its props and ref to. The wrapper has to be a real box:
-            // display:contents would leave it nothing to measure, and the tooltip
-            // would be placed at the origin and never notice the pointer leaving.
-            renderTooltip={(label, trigger) => (
-              <Tooltip placement="right" gutter={8}>
-                <TooltipTrigger as="span" class="block w-full">
-                  {trigger}
-                </TooltipTrigger>
-                <TooltipContent>{label}</TooltipContent>
-              </Tooltip>
-            )}
-          />
+          <>
+            <Show when={drawerOpen()}>
+              <button
+                type="button"
+                onClick={toggleChrome}
+                aria-label={t("nav.dismissMenu")}
+                class="absolute inset-0 z-20 cursor-default bg-black/20"
+              />
+            </Show>
+            <ActivityBar
+              class={`${SLIDE} ${drawerOpen() ? "absolute inset-y-0 left-0 z-30" : ""}`}
+              visible={railShown()}
+              items={buttonsFor(NAV)}
+              footer={buttonsFor(FOOT)}
+              expanded={railExpanded()}
+              onToggle={() => setRailExpanded((expanded) => !expanded)}
+              expandLabel={t("nav.expandSidebar")}
+              collapseLabel={t("nav.collapseSidebar")}
+              // The trigger arrives already built, so Kobalte gets a wrapper to
+              // attach its props and ref to. The wrapper has to be a real box:
+              // display:contents would leave it nothing to measure, and the tooltip
+              // would be placed at the origin and never notice the pointer leaving.
+              renderTooltip={(label, trigger) => (
+                <Tooltip placement="right" gutter={8}>
+                  <TooltipTrigger as="span" class="block w-full">
+                    {trigger}
+                  </TooltipTrigger>
+                  <TooltipContent>{label}</TooltipContent>
+                </Tooltip>
+              )}
+            />
+          </>
         }
         panel={
           <SidePanel
-            class={SLIDE}
+            class={`${SLIDE} ${drawerOpen() ? "absolute inset-y-0 z-30" : ""}`}
+            style={drawerOpen() ? { left: `${(railExpanded() ? 208 : RAIL) + 1}px` } : undefined}
             // Pinned rather than merely allowed: a width whose floor and ceiling
             // are the same cannot be dragged off it, which is what makes the
             // explorer take the window whole and stay there.
-            minWidth={() => (snapped() ? wholeWindow() : 168)}
-            maxWidth={() => (snapped() ? wholeWindow() : withinWindow())}
+            minWidth={() => (drawerOpen() ? drawerPanelWidth() : snapped() ? wholeWindow() : 168)}
+            maxWidth={() => (drawerOpen() ? drawerPanelWidth() : snapped() ? wholeWindow() : withinWindow())}
             open={panelShown()}
             header={<span>{current().label()}</span>}
+            onClose={drawerOpen() ? toggleChrome : undefined}
+            closeLabel={t("nav.closeMenu")}
           >
             <Dynamic component={current().Explorer} onChosen={chose} />
           </SidePanel>

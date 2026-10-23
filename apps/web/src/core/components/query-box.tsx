@@ -70,6 +70,7 @@ export function QueryBox(props: {
 
   return (
     <Searching
+      class="max-[900px]:!w-full"
       value={query()}
       onInput={setQuery}
       placeholder={t("journal.queryPlaceholder")}

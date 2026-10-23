@@ -64,6 +64,8 @@ const incompleteFr: Dictionary = {
     settings: "Paramètres",
     showPanels: "Afficher les panneaux",
     hidePanels: "Masquer les panneaux",
+    closeMenu: "Fermer le menu",
+    dismissMenu: "Fermer en touchant à l’extérieur",
     back: "Retour à la liste",
   },
   journal: {

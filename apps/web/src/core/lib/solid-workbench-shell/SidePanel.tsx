@@ -1,6 +1,7 @@
 import { Show, type JSX } from 'solid-js'
 import { createResizable, type Bound } from './resize'
 import { Splitter } from './Splitter'
+import { XIcon } from './icons'
 
 /**
  * The list panel beside the activity bar — VSCode's explorer. It owns its own
@@ -23,6 +24,9 @@ export function SidePanel(props: {
    * reach. */
   maxWidth?: Bound
   open?: boolean
+  onClose?: () => void
+  closeLabel?: string
+  style?: JSX.CSSProperties
   /** Classes for the outer box, which is where its width is set. Transitions
    * belong here rather than in the shell: whether a width should animate depends
    * on what sits beside it. */
@@ -38,14 +42,28 @@ export function SidePanel(props: {
   return (
     <div
       class={`flex shrink-0 overflow-hidden ${props.class ?? ''}`}
-      style={{ width: isOpen() ? `${width() + 1}px` : '0px' }}
+      style={{ ...props.style, width: isOpen() ? `${width() + 1}px` : '0px' }}
       aria-hidden={!isOpen()}
     >
       <div class="flex shrink-0" style={{ width: `${width() + 1}px` }}>
         <aside class="flex min-w-0 flex-1 flex-col bg-card">
-          <Show when={props.header}>
-            <div class="flex h-8 shrink-0 items-center justify-between px-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-              {props.header}
+          <Show when={props.header || props.onClose}>
+            <div
+              class="flex h-8 shrink-0 items-center justify-between gap-2 px-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
+              classList={{ 'h-12': props.onClose !== undefined }}
+            >
+              <span class="min-w-0 truncate">{props.header}</span>
+              <Show when={props.onClose}>
+                <button
+                  type="button"
+                  onClick={() => props.onClose?.()}
+                  aria-label={props.closeLabel ?? 'Close'}
+                  title={props.closeLabel ?? 'Close'}
+                  class="inline-flex size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <XIcon class="h-4 w-4" />
+                </button>
+              </Show>
             </div>
           </Show>
           <div class="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">{props.children}</div>

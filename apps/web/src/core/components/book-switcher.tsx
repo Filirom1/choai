@@ -45,7 +45,7 @@ export function BookSwitcher(props: { onAdd: () => void; onSwitched: (kind: "boo
         aria-label={t("books.switch")}
         title={t("books.switch")}
         aria-expanded={open()}
-        class="inline-flex items-center gap-1 rounded px-1 font-semibold tracking-tight transition-colors hover:bg-accent"
+        class="inline-flex min-h-6 items-center gap-1 rounded px-1 font-semibold tracking-tight transition-colors hover:bg-accent max-[900px]:min-h-11 max-[900px]:px-2"
       >
         {/* Six full-width characters, which is what an em is the width of —
             so the cap is the same six whatever size the bar is set in. Long
