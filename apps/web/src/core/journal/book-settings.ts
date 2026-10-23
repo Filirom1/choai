@@ -6,11 +6,14 @@ import { replaceReport, type DefinitionTrouble, type SavedReport } from "~/core/
 import type { Trouble } from "~/core/hledger/wire"
 import {
   BOOK_CONFIG_PATH,
+  DEFAULT_BOOK_CONFIG,
   bookConfigFromFiles,
   textOfBookConfig,
   type BookConfig,
   type BookConfigTrouble,
+  type EntryDisplaySettings,
   validImportSettings,
+  validEntryDisplaySettings,
 } from "./book-config"
 import {
   DEFAULT_DOCUMENT_SETTINGS,
@@ -25,6 +28,7 @@ export type BookSettingsTrouble =
   | { readonly kind: "invalid-config"; readonly trouble: BookConfigTrouble }
   | { readonly kind: "invalid-documents" }
   | { readonly kind: "invalid-imports" }
+  | { readonly kind: "invalid-entry-display" }
   | { readonly kind: "journal"; readonly trouble: Trouble }
   | { readonly kind: "storage"; readonly cause: unknown }
 
@@ -41,6 +45,13 @@ export const documents: Accessor<DocumentSettings> = createRoot(() =>
   createMemo(() => {
     const settings = bookSettings()
     return settings.ok ? settings.value.documents : DEFAULT_DOCUMENT_SETTINGS
+  }),
+)
+
+export const entryDisplay: Accessor<EntryDisplaySettings> = createRoot(() =>
+  createMemo(() => {
+    const settings = bookSettings()
+    return settings.ok ? settings.value.entryDisplay : DEFAULT_BOOK_CONFIG.entryDisplay
   }),
 )
 
@@ -61,6 +72,7 @@ const keep = async (
     const next = update(config.value)
     if (!validDocumentSettings(next.documents)) return Err({ kind: "invalid-documents" })
     if (!validImportSettings(next.imports)) return Err({ kind: "invalid-imports" })
+    if (!validEntryDisplaySettings(next.entryDisplay)) return Err({ kind: "invalid-entry-display" })
 
     const written = await putFiles({
       [BOOK_CONFIG_PATH]: textOfBookConfig(next),
@@ -70,7 +82,7 @@ const keep = async (
 }
 
 export const saveBookSettings = (
-  settings: Pick<BookConfig, "documents" | "invert" | "imports" | "accountSort">,
+  settings: Pick<BookConfig, "documents" | "invert" | "imports" | "accountSort" | "entryDisplay">,
 ): Promise<Result<BookConfig, BookSettingsTrouble>> =>
   keep((current) => ({ ...current, ...settings }))
 

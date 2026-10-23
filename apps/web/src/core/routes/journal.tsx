@@ -2,9 +2,9 @@ import { For, Show, createResource, type JSX } from "solid-js"
 
 import { ask } from "~/core/hledger/client"
 import { formatMixed } from "~/core/hledger/amount"
-import type { Posting, Transaction } from "~/core/hledger/wire"
+import type { Posting, Status, Tag, Transaction } from "~/core/hledger/wire"
 import { journal } from "~/core/journal/store"
-import { documents } from "~/core/journal/book-settings"
+import { documents, entryDisplay } from "~/core/journal/book-settings"
 import { documentPathOn } from "~/core/journal/documents"
 import { byDay, weekdayOf } from "~/core/journal/days"
 import { withoutKindNow } from "~/core/journal/chart"
@@ -158,6 +158,7 @@ const headingOf = (date: string): string => {
  */
 function EntryCard(props: { transaction: Transaction }): JSX.Element {
   const open = (): void => startEditingEntry(props.transaction)
+  const display = () => entryDisplay()
   return (
     <div
       role="button"
@@ -172,13 +173,27 @@ function EntryCard(props: { transaction: Transaction }): JSX.Element {
       }}
     >
       <div class="flex items-center justify-between gap-2">
-        <span class="truncate font-medium">{props.transaction.tdescription}</span>
+        <span class="min-w-0 truncate font-medium">
+          <Show when={display().status && statusMark(props.transaction.tstatus) !== ""}>
+            <span class="font-mono text-primary">{statusMark(props.transaction.tstatus)}</span>{" "}
+          </Show>
+          <Show when={display().code && props.transaction.tcode !== ""}>
+            <span class="font-mono text-muted-foreground">({props.transaction.tcode})</span>{" "}
+          </Show>
+          {props.transaction.tdescription}
+        </span>
         <Show when={documentPathOn(props.transaction.ttags, documents().tag) !== undefined}>
           <span class="text-primary" title={t("journal.documentPresent")}>
             <PaperclipIcon class="h-4 w-4" />
           </span>
         </Show>
       </div>
+      <Show when={display().transactionComment && props.transaction.tcomment !== ""}>
+        <p class="whitespace-pre-wrap break-words text-xs text-muted-foreground">{props.transaction.tcomment}</p>
+      </Show>
+      <Show when={display().transactionTags && props.transaction.ttags.length > 0}>
+        <TagList tags={props.transaction.ttags} />
+      </Show>
       <div class="pl-4">
         <For each={props.transaction.tpostings}>{(posting) => <PostingLine posting={posting} />}</For>
       </div>
@@ -188,12 +203,40 @@ function EntryCard(props: { transaction: Transaction }): JSX.Element {
 
 /** The kind is left to the sign and to the name beneath it; the whole name is a hover away. */
 function PostingLine(props: { posting: Posting }): JSX.Element {
+  const display = () => entryDisplay()
   return (
-    <div class="flex justify-between gap-6 py-0.5 text-sm">
-      <span class="min-w-0 truncate text-muted-foreground" title={props.posting.paccount}>
-        {withoutKindNow(props.posting.paccount)}
-      </span>
-      <span class="shrink-0 font-mono tabular-nums">{formatMixed(props.posting.pamount)}</span>
+    <div class="py-0.5">
+      <div class="flex justify-between gap-6 text-sm">
+        <span class="min-w-0 truncate text-muted-foreground" title={props.posting.paccount}>
+          <Show when={display().status && statusMark(props.posting.pstatus) !== ""}>
+            <span class="font-mono text-primary">{statusMark(props.posting.pstatus)}</span>{" "}
+          </Show>
+          <Show when={display().postingDate && props.posting.pdate !== null}>
+            <span class="font-mono">{props.posting.pdate}</span>{" "}
+          </Show>
+          {withoutKindNow(props.posting.paccount)}
+        </span>
+        <span class="shrink-0 font-mono tabular-nums">{formatMixed(props.posting.pamount)}</span>
+      </div>
+      <Show when={display().postingComment && props.posting.pcomment !== ""}>
+        <p class="whitespace-pre-wrap break-words pl-2 text-xs text-muted-foreground">{props.posting.pcomment}</p>
+      </Show>
+      <Show when={display().postingTags && props.posting.ptags.length > 0}>
+        <div class="pl-2"><TagList tags={props.posting.ptags} /></div>
+      </Show>
     </div>
+  )
+}
+
+const statusMark = (status: Status): string =>
+  status === "Cleared" ? "*" : status === "Pending" ? "!" : ""
+
+const tagText = ([name, value]: Tag): string => value === "" ? name : `${name}: ${value}`
+
+function TagList(props: { readonly tags: readonly Tag[] }): JSX.Element {
+  return (
+    <ul class="flex flex-wrap gap-x-2 text-xs text-muted-foreground">
+      <For each={props.tags}>{(tag) => <li>{tagText(tag)}</li>}</For>
+    </ul>
   )
 }

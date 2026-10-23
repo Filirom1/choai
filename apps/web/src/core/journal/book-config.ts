@@ -10,12 +10,23 @@ export interface ImportSettings {
   readonly rulesFolder: string
 }
 
+export interface EntryDisplaySettings {
+  readonly status: boolean
+  readonly code: boolean
+  readonly transactionComment: boolean
+  readonly transactionTags: boolean
+  readonly postingDate: boolean
+  readonly postingComment: boolean
+  readonly postingTags: boolean
+}
+
 export interface BookConfig {
   readonly documents: DocumentSettings
   readonly reports: readonly SavedReport[]
   readonly invert: boolean
   readonly imports: ImportSettings
   readonly accountSort: AccountSort
+  readonly entryDisplay: EntryDisplaySettings
 }
 
 export type BookConfigTrouble =
@@ -23,6 +34,32 @@ export type BookConfigTrouble =
   | { readonly kind: "invalid-shape" }
 
 export const DEFAULT_IMPORT_SETTINGS: ImportSettings = { csvFolder: "", rulesFolder: "" }
+export const DEFAULT_ENTRY_DISPLAY_SETTINGS: EntryDisplaySettings = {
+  status: true,
+  code: false,
+  transactionComment: false,
+  transactionTags: false,
+  postingDate: false,
+  postingComment: false,
+  postingTags: false,
+}
+
+const ENTRY_DISPLAY_FIELDS: readonly (keyof EntryDisplaySettings)[] = [
+  "status",
+  "code",
+  "transactionComment",
+  "transactionTags",
+  "postingDate",
+  "postingComment",
+  "postingTags",
+]
+
+const validEntryDisplayRecord = (record: Record<string, unknown>): record is Record<keyof EntryDisplaySettings, boolean> =>
+  hasOnly(record, ENTRY_DISPLAY_FIELDS) &&
+  ENTRY_DISPLAY_FIELDS.every((field) => typeof record[field] === "boolean")
+
+export const validEntryDisplaySettings = (settings: EntryDisplaySettings): boolean =>
+  ENTRY_DISPLAY_FIELDS.every((field) => typeof settings[field] === "boolean")
 
 export const validImportSettings = (settings: ImportSettings): boolean =>
   [settings.csvFolder, settings.rulesFolder].every((folder) =>
@@ -40,6 +77,7 @@ export const DEFAULT_BOOK_CONFIG: BookConfig = {
   invert: false,
   imports: DEFAULT_IMPORT_SETTINGS,
   accountSort: "chart",
+  entryDisplay: DEFAULT_ENTRY_DISPLAY_SETTINGS,
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -68,7 +106,7 @@ export const bookConfigFromFiles = (
     return Err({ kind: "invalid-json", cause })
   }
 
-  if (!isRecord(value) || !hasOnlyWithOptional(value, ["documents", "reports", "invert", "imports", "accountSort"], ["invert", "imports", "accountSort"])) return Err({ kind: "invalid-shape" })
+  if (!isRecord(value) || !hasOnlyWithOptional(value, ["documents", "reports", "invert", "imports", "accountSort", "entryDisplay"], ["invert", "imports", "accountSort", "entryDisplay"])) return Err({ kind: "invalid-shape" })
   if (typeof value.invert !== "undefined" && typeof value.invert !== "boolean") return Err({ kind: "invalid-shape" })
   if (typeof value.accountSort !== "undefined" && !ACCOUNT_SORTS.some((sort) => sort === value.accountSort)) return Err({ kind: "invalid-shape" })
   const documents = value.documents
@@ -82,8 +120,14 @@ export const bookConfigFromFiles = (
   if (typeof imports.csvFolder !== "string" || typeof imports.rulesFolder !== "string") return Err({ kind: "invalid-shape" })
   const importSettings = { csvFolder: imports.csvFolder, rulesFolder: imports.rulesFolder }
   const accountSort = ACCOUNT_SORTS.find((sort) => sort === value.accountSort) ?? "chart"
+  const entryDisplay = value.entryDisplay === undefined
+    ? DEFAULT_ENTRY_DISPLAY_SETTINGS
+    : isRecord(value.entryDisplay) && validEntryDisplayRecord(value.entryDisplay)
+      ? value.entryDisplay
+      : undefined
+  if (entryDisplay === undefined) return Err({ kind: "invalid-shape" })
   return validDocumentSettings(documentSettings) && validImportSettings(importSettings) && reports.ok
-    ? Ok({ documents: documentSettings, reports: reports.value, invert: value.invert ?? false, imports: importSettings, accountSort })
+    ? Ok({ documents: documentSettings, reports: reports.value, invert: value.invert ?? false, imports: importSettings, accountSort, entryDisplay })
     : Err({ kind: "invalid-shape" })
 }
 

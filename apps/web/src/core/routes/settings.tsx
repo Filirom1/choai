@@ -8,7 +8,7 @@ import { SCHEMES, scheme, setScheme } from "~/core/lib/theme"
 import { ACCOUNT_SORTS } from "~/core/journal/declarations"
 import { TextField, TextFieldInput } from "~/core/components/ui/text-field"
 import { DEFAULT_DOCUMENT_SETTINGS, validDocumentSettings } from "~/core/journal/documents"
-import { BOOK_CONFIG_PATH, DEFAULT_BOOK_CONFIG, validImportSettings } from "~/core/journal/book-config"
+import { BOOK_CONFIG_PATH, DEFAULT_BOOK_CONFIG, validImportSettings, type EntryDisplaySettings } from "~/core/journal/book-config"
 import { bookSettings, saveBookSettings, type BookSettingsTrouble } from "~/core/journal/book-settings"
 import { journal } from "~/core/journal/store"
 import { getOrUndefined } from "~/core/lib/monad"
@@ -33,10 +33,26 @@ export const SECTIONS: readonly Section[] = [
   { id: "account-sort", name: () => t("settings.accountSort") },
 ]
 
+const ENTRY_DISPLAY_OPTIONS: readonly { readonly field: keyof EntryDisplaySettings; readonly label: () => string }[] = [
+  { field: "status", label: () => t("settings.entryStatus") },
+  { field: "code", label: () => t("settings.entryCode") },
+  { field: "transactionComment", label: () => t("settings.entryComment") },
+  { field: "transactionTags", label: () => t("settings.entryTags") },
+  { field: "postingDate", label: () => t("settings.postingDate") },
+  { field: "postingComment", label: () => t("settings.postingComment") },
+  { field: "postingTags", label: () => t("settings.postingTags") },
+]
+
 /** Everything set once and then left alone, one section at a time. */
 export default function Settings(): JSX.Element {
   const location = useLocation()
-  const [draft, setDraft] = createSignal({ documents: DEFAULT_DOCUMENT_SETTINGS, invert: false, imports: { csvFolder: "", rulesFolder: "" }, accountSort: DEFAULT_BOOK_CONFIG.accountSort })
+  const [draft, setDraft] = createSignal({
+    documents: DEFAULT_DOCUMENT_SETTINGS,
+    invert: false,
+    imports: { csvFolder: "", rulesFolder: "" },
+    accountSort: DEFAULT_BOOK_CONFIG.accountSort,
+    entryDisplay: DEFAULT_BOOK_CONFIG.entryDisplay,
+  })
   const [saving, setSaving] = createSignal(false)
   const [failure, setFailure] = createSignal<BookSettingsTrouble>()
   const section = createMemo(() => pageOf(location.hash))
@@ -57,8 +73,20 @@ export default function Settings(): JSX.Element {
     on(configAddress, () => {
       const settings = bookSettings()
       setDraft(settings.ok
-        ? { documents: settings.value.documents, invert: settings.value.invert, imports: settings.value.imports, accountSort: settings.value.accountSort }
-        : { documents: DEFAULT_DOCUMENT_SETTINGS, invert: false, imports: { csvFolder: "", rulesFolder: "" }, accountSort: DEFAULT_BOOK_CONFIG.accountSort })
+        ? {
+            documents: settings.value.documents,
+            invert: settings.value.invert,
+            imports: settings.value.imports,
+            accountSort: settings.value.accountSort,
+            entryDisplay: settings.value.entryDisplay,
+          }
+        : {
+            documents: DEFAULT_DOCUMENT_SETTINGS,
+            invert: false,
+            imports: { csvFolder: "", rulesFolder: "" },
+            accountSort: DEFAULT_BOOK_CONFIG.accountSort,
+            entryDisplay: DEFAULT_BOOK_CONFIG.entryDisplay,
+          })
       setFailure(undefined)
     }),
   )
@@ -207,6 +235,27 @@ export default function Settings(): JSX.Element {
               <span class="text-xs text-muted-foreground">{t("settings.invertReportsHint")}</span>
             </span>
           </label>
+          <div class="flex flex-col gap-2 border-t border-border pt-3">
+            <div>
+              <h3 class="text-sm font-medium">{t("settings.entryDisplay")}</h3>
+              <p class="text-xs text-muted-foreground">{t("settings.entryDisplayHint")}</p>
+            </div>
+            <For each={ENTRY_DISPLAY_OPTIONS}>
+              {(option) => (
+                <label class="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={draft().entryDisplay[option.field]}
+                    onChange={(event) => setDraft({
+                      ...draft(),
+                      entryDisplay: { ...draft().entryDisplay, [option.field]: event.currentTarget.checked },
+                    })}
+                  />
+                  <span>{option.label()}</span>
+                </label>
+              )}
+            </For>
+          </div>
           <Show when={failure()}>
             {(trouble) => <p role="alert" class="text-sm text-error">{settingsFailure(trouble())}</p>}
           </Show>

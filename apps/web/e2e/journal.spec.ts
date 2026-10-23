@@ -66,3 +66,32 @@ test("the journal's page is in the address", async ({ page }) => {
   await expect(page).toHaveURL(/\/journal\?q=desc%3Acoffee#work$/)
   await expect(page.getByText(/ of 60$/)).toHaveText("1–50 of 60")
 })
+
+test("entry status marks are visible by default and metadata follows book settings", async ({ page }) => {
+  await openTheDemo(page)
+  await page.getByRole("button", { name: "Edit the text", exact: true }).first().click()
+  await page.getByRole("button", { name: "transactions.journal", exact: true }).click()
+
+  const read = await page.evaluate(() => window.choai.journal.text({ path: "transactions.journal" }))
+  expect(read.ok).toBe(true)
+  if (!read.ok) return
+  const changed = read.value.text.replace("2026-01-05 landlord", "2026-01-05 * (INV-42) landlord")
+  expect(changed).not.toBe(read.value.text)
+  await page.locator("textarea").fill(changed)
+  await page.getByRole("button", { name: "Save", exact: true }).click()
+  await expect(page.getByRole("button", { name: "Save", exact: true })).toBeDisabled()
+  await page.getByRole("button", { name: "Journal", exact: true }).first().click()
+
+  const marked = page.getByRole("button", { name: /\* landlord/ })
+  await expect(marked).toBeVisible()
+  await expect(marked.getByText("*", { exact: true })).toBeVisible()
+  await expect(marked).not.toContainText("INV-42")
+
+  await page.getByRole("button", { name: "Settings", exact: true }).first().click()
+  const code = page.getByRole("checkbox", { name: "Entry code", exact: true })
+  await expect(code).not.toBeChecked()
+  await code.check()
+  await page.getByRole("button", { name: "Save book settings", exact: true }).click()
+  await page.getByRole("button", { name: "Journal", exact: true }).first().click()
+  await expect(page.getByRole("button", { name: /\(INV-42\).*landlord/ })).toBeVisible()
+})
