@@ -12,8 +12,9 @@ const from = {
   "imports/csv/.latest.bank.csv": "2026-01-01\n",
 }
 
-const imported = (text: string): Item => ({
+const imported = (text: string, path?: string): Item => ({
   is: "hledger-import",
+  ...(path === undefined ? {} : { path }),
   csvPath: "imports/csv/bank.csv",
   rulesPath: "imports/rules/bank.csv.rules",
   checkpointPath: "imports/csv/.latest.bank.csv",
@@ -55,5 +56,16 @@ describe("native hledger import proposals", () => {
     expect(changes[TRANSACTIONS]).toBe(from[TRANSACTIONS])
     expect(changes["imports/csv/.latest.bank.csv"]).toBe("2026-01-02\n")
     expect(changes["main.journal"]).toContain("; choai-file: imports/csv/.latest.bank.csv")
+  })
+
+  test("writes imported transactions to the selected journal file", () => {
+    const text = "2026-01-02 Market\n    assets:bank  -2 USD\n    expenses:food  2 USD\n"
+    const item = imported(text, "main.journal")
+    const changes = filesOf(proposal(item), from, "main.journal", undefined)
+
+    expect(changes["main.journal"]).toContain(text)
+    expect(changes["main.journal"]).toContain("; choai-file: imports/csv/.latest.bank.csv")
+    expect(changes[TRANSACTIONS]).toBe(from[TRANSACTIONS])
+    expect(touches([item], "main.journal", from)).toContain("main.journal")
   })
 })

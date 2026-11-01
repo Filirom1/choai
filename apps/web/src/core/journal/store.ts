@@ -12,7 +12,7 @@ import { Err, None, Ok, Some, getOrUndefined, type Option, type Result } from "~
 import { t } from "~/core/i18n"
 import { atTheJournal } from "~/core/hledger/turn"
 import { excludingCompanion, companionsIn, companionsAcross } from "~/core/journal/companions"
-import { documentSettingsFromFiles } from "~/core/journal/book-config"
+import { bookConfigFromFiles, documentSettingsFromFiles } from "~/core/journal/book-config"
 import { documentPathsInFiles, safeDocumentPath } from "~/core/journal/documents"
 import { hledgerLatestPaths, isHiddenPath, isHledgerLatestPath } from "~/core/journal/hidden"
 import { demoJournal } from "./demo"
@@ -540,12 +540,13 @@ const missingFrom = (trouble: Trouble): string | undefined => {
  * has it started, and named in the entry file's includes in the same write.
  */
 const withTransactions = (source: Source, text: string): Source => {
-  const files: Readonly<Record<string, string>> = { ...source.files, [TRANSACTIONS]: text }
+  const path = transactionFileFor(source)
+  const files: Readonly<Record<string, string>> = { ...source.files, [path]: text }
   const entry = entryName(source)
   return {
     ...source,
-    files: source.files[TRANSACTIONS] === undefined
-      ? { ...files, [entry]: including(files[entry] ?? "", TRANSACTIONS) }
+    files: source.files[path] === undefined && path.endsWith(".journal")
+      ? { ...files, [entry]: including(files[entry] ?? "", path) }
       : files,
   }
 }
@@ -731,10 +732,18 @@ export const putFiles = async (
 /** The entry path as hledger sees it, back to the key the files are held under. */
 const entryName = (source: Source): string => source.entry.replace(/^\//, "")
 
+/** The file new transactions are written to under this book's settings. */
+export const transactionFileFor = (source: Source): string => {
+  const config = bookConfigFromFiles(source.files)
+  return config.ok && !config.value.useTransactionsJournal ? entryName(source) : TRANSACTIONS
+}
+
 /** The text of the file new entries are added to: empty where it is not started yet. */
 export const transactionsText = (): string | undefined => {
   const current = getOrUndefined(opened())
-  return current === undefined ? undefined : (current.source.files[TRANSACTIONS] ?? "")
+  return current === undefined
+    ? undefined
+    : (current.source.files[transactionFileFor(current.source)] ?? "")
 }
 
 /**

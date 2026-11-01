@@ -52,6 +52,7 @@ export default function Settings(): JSX.Element {
   const [draft, setDraft] = createSignal({
     documents: DEFAULT_DOCUMENT_SETTINGS,
     invert: false,
+    useTransactionsJournal: true,
     imports: { csvFolder: "", rulesFolder: "" },
     accountSort: DEFAULT_BOOK_CONFIG.accountSort,
     entryDisplay: DEFAULT_BOOK_CONFIG.entryDisplay,
@@ -79,6 +80,7 @@ export default function Settings(): JSX.Element {
         ? {
             documents: settings.value.documents,
             invert: settings.value.invert,
+            useTransactionsJournal: settings.value.useTransactionsJournal,
             imports: settings.value.imports,
             accountSort: settings.value.accountSort,
             entryDisplay: settings.value.entryDisplay,
@@ -86,6 +88,7 @@ export default function Settings(): JSX.Element {
         : {
             documents: DEFAULT_DOCUMENT_SETTINGS,
             invert: false,
+            useTransactionsJournal: true,
             imports: { csvFolder: "", rulesFolder: "" },
             accountSort: DEFAULT_BOOK_CONFIG.accountSort,
             entryDisplay: DEFAULT_BOOK_CONFIG.entryDisplay,
@@ -175,6 +178,20 @@ export default function Settings(): JSX.Element {
             <p class="text-xs text-muted-foreground">{t("settings.accountSortHint")}</p>
           </Show>
         </section>
+        <Show when={open()}>
+          <label class="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              class="mt-1"
+              checked={draft().useTransactionsJournal}
+              onChange={(event) => setDraft({ ...draft(), useTransactionsJournal: event.currentTarget.checked })}
+            />
+            <span class="flex flex-col gap-1">
+              <span>{t("settings.useTransactionsJournal")}</span>
+              <span class="text-xs text-muted-foreground">{t("settings.useTransactionsJournalHint")}</span>
+            </span>
+          </label>
+        </Show>
         <Show when={open()}>
           <Show when={configurationFailure()}>
             {(message) => <p role="alert" class="text-sm text-error">{message()}</p>}

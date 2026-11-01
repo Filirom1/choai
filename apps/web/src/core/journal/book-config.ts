@@ -27,6 +27,7 @@ export interface BookConfig {
   readonly documents: DocumentSettings
   readonly reports: readonly SavedReport[]
   readonly invert: boolean
+  readonly useTransactionsJournal: boolean
   readonly imports: ImportSettings
   readonly accountSort: AccountSort
   readonly entryDisplay: EntryDisplaySettings
@@ -95,6 +96,7 @@ export const DEFAULT_BOOK_CONFIG: BookConfig = {
   documents: DEFAULT_DOCUMENT_SETTINGS,
   reports: [],
   invert: false,
+  useTransactionsJournal: true,
   imports: DEFAULT_IMPORT_SETTINGS,
   accountSort: "chart",
   entryDisplay: DEFAULT_ENTRY_DISPLAY_SETTINGS,
@@ -126,8 +128,13 @@ export const bookConfigFromFiles = (
     return Err({ kind: "invalid-json", cause })
   }
 
-  if (!isRecord(value) || !hasOnlyWithOptional(value, ["documents", "reports", "invert", "imports", "accountSort", "entryDisplay"], ["invert", "imports", "accountSort", "entryDisplay"])) return Err({ kind: "invalid-shape" })
+  if (!isRecord(value) || !hasOnlyWithOptional(
+    value,
+    ["documents", "reports", "invert", "useTransactionsJournal", "imports", "accountSort", "entryDisplay"],
+    ["invert", "useTransactionsJournal", "imports", "accountSort", "entryDisplay"],
+  )) return Err({ kind: "invalid-shape" })
   if (typeof value.invert !== "undefined" && typeof value.invert !== "boolean") return Err({ kind: "invalid-shape" })
+  if (typeof value.useTransactionsJournal !== "undefined" && typeof value.useTransactionsJournal !== "boolean") return Err({ kind: "invalid-shape" })
   if (typeof value.accountSort !== "undefined" && !ACCOUNT_SORTS.some((sort) => sort === value.accountSort)) return Err({ kind: "invalid-shape" })
   const documents = value.documents
   if (!isRecord(documents) || !hasOnly(documents, ["tag", "folder"])) return Err({ kind: "invalid-shape" })
@@ -147,7 +154,15 @@ export const bookConfigFromFiles = (
       : undefined
   if (entryDisplay === undefined) return Err({ kind: "invalid-shape" })
   return validDocumentSettings(documentSettings) && validImportSettings(importSettings) && reports.ok
-    ? Ok({ documents: documentSettings, reports: reports.value, invert: value.invert ?? false, imports: importSettings, accountSort, entryDisplay })
+    ? Ok({
+        documents: documentSettings,
+        reports: reports.value,
+        invert: value.invert ?? false,
+        useTransactionsJournal: value.useTransactionsJournal ?? true,
+        imports: importSettings,
+        accountSort,
+        entryDisplay,
+      })
     : Err({ kind: "invalid-shape" })
 }
 

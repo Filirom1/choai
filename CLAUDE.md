@@ -187,7 +187,8 @@ three tsconfigs agree on where the seam resolves.
   entries go to the transactions, declarations to the accounts; a write that
   starts a journal file names it in `main.journal` in the same write
   (`writtenInto`, and `filesOf` for proposals). `D` stays in `main.journal`
-  because hledger carries it into every file included after it. The worker
+  because hledger carries it into every file included after it. A book setting
+  can instead send new transactions to the currently open entry file. The worker
   builds real folders for these (`treeOf`), and `journal/handover.ts` hands the
   same layout over — into a chosen folder where the browser can write one, as a
   zip where it cannot.

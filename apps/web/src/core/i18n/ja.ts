@@ -31,7 +31,7 @@ export const ja: Dictionary = {
     willCatchup: "{{ count }} 件を journal に追加せず、インポート済みとして記録します。",
     proposeCatchup: "チェックポイントのみ提案",
     syncNote: "テストではファイルを変更しません。承認後の変更はこの端末の帳簿だけに適用されます。Git、Drive、リンク先フォルダーへは通常の同期操作で送信します。",
-    review: "CSV {{ csv }} · rules {{ rules }} · {{ count }} 件を transactions.journal へ · {{ checkpoint }} を置換",
+    review: "CSV {{ csv }} · rules {{ rules }} · {{ count }} 件を {{ path }} へ · {{ checkpoint }} を置換",
     reviewCatchup: "CSV {{ csv }} · rules {{ rules }} · {{ count }} 行を追加せずキャッチアップ · {{ checkpoint }} を置換",
   },
   customReport: {
@@ -387,6 +387,8 @@ export const ja: Dictionary = {
     application: "アプリケーション",
     book: "現在の帳簿",
     bookHint: "この設定は{{ name }}と一緒に保存され、帳簿のバックアップや同期に含まれます。",
+    useTransactionsJournal: "新しい取引を transactions.journal に書き込む",
+    useTransactionsJournalHint: "オフの場合、新しい取引は現在開いている journal ファイルに追加されます。既存の include や transactions.journal は変更されません。",
     importFolders: "CSV インポートフォルダー",
     csvFolder: "帳簿内の CSV フォルダー",
     rulesFolder: "帳簿内の rules フォルダー",

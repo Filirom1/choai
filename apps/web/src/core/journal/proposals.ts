@@ -5,7 +5,7 @@ import { appendText, appendToJournal, draftToJournal, type Draft, type Tag } fro
 import { Err, Ok, getOrUndefined, type Result } from "~/core/lib/monad"
 import { replaceAt, type Span } from "./lines"
 import { TRANSACTIONS, including } from "./layout"
-import { journal, putFiles, tryOut, type OpenJournal } from "./store"
+import { journal, putFiles, transactionFileFor, tryOut, type OpenJournal } from "./store"
 import { withTags } from "./tagging"
 import { declaringCompanion } from "./companions"
 
@@ -88,6 +88,7 @@ export type Item = {
   | { readonly is: "append"; readonly path: string; readonly text: string }
   | {
       readonly is: "hledger-import"
+      readonly path?: string
       readonly csvPath: string
       readonly rulesPath: string
       readonly checkpointPath: string
@@ -288,7 +289,7 @@ const writesTo = (item: Item): readonly string[] => {
     case "append":
       return [item.path]
     case "hledger-import":
-      return [TRANSACTIONS, item.csvPath, item.rulesPath, item.checkpointPath]
+      return [item.path ?? TRANSACTIONS, item.csvPath, item.rulesPath, item.checkpointPath]
   }
 }
 
@@ -380,7 +381,7 @@ export const filesOf = (
       }
       const withTransactions = one.text === ""
         ? files
-        : { ...files, [TRANSACTIONS]: appendText(files[TRANSACTIONS] ?? "", one.text) }
+        : { ...files, [one.path ?? TRANSACTIONS]: appendText(files[one.path ?? TRANSACTIONS] ?? "", one.text) }
       return {
         ...withTransactions,
         [one.checkpointPath]: one.checkpointText,
@@ -462,7 +463,13 @@ export const propose = async (
   if (into !== undefined && onto === undefined) return Err({ at: "no-such-proposal", id: into })
   if (onto !== undefined && onto.bookId !== open.bookId) return Err({ at: "stale-proposal", id: onto.id })
 
-  const all = onto === undefined ? items : [...onto.items, ...items]
+  const destination = transactionFileFor(open.source)
+  const directed = items.map((item) =>
+    (item.is === "add" || item.is === "hledger-import") && item.path === undefined
+      ? { ...item, path: destination }
+      : item,
+  )
+  const all = onto === undefined ? directed : [...onto.items, ...directed]
   const entry = entryPath(open)
   const basedOn = {
     ...Object.fromEntries(

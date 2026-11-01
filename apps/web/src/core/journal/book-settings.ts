@@ -82,7 +82,7 @@ const keep = async (
 }
 
 export const saveBookSettings = (
-  settings: Pick<BookConfig, "documents" | "invert" | "imports" | "accountSort" | "entryDisplay">,
+  settings: Pick<BookConfig, "documents" | "invert" | "useTransactionsJournal" | "imports" | "accountSort" | "entryDisplay">,
 ): Promise<Result<BookConfig, BookSettingsTrouble>> =>
   keep((current) => ({ ...current, ...settings }))
 

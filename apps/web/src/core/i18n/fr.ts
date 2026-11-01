@@ -116,7 +116,7 @@ const incompleteFr: Dictionary = {
     willCatchup: "{{ count }} transactions détectées seront marquées comme importées sans être ajoutées au journal.",
     proposeCatchup: "Proposer uniquement le point de contrôle",
     syncNote: "Le test ne modifie aucun fichier. L'acceptation ne modifie que la copie locale ; utilisez l'action de synchronisation habituelle pour l'envoyer vers Git, Drive ou le dossier associé.",
-    review: "CSV {{ csv }} · règles {{ rules }} · {{ count }} écritures vers transactions.journal · remplacer {{ checkpoint }}",
+    review: "CSV {{ csv }} · règles {{ rules }} · {{ count }} écritures vers {{ path }} · remplacer {{ checkpoint }}",
     reviewCatchup: "CSV {{ csv }} · règles {{ rules }} · rattraper {{ count }} lignes sans ajouter d'écriture · remplacer {{ checkpoint }}",
   },
   reconcile: {
@@ -256,6 +256,8 @@ const incompleteFr: Dictionary = {
     application: "Application",
     book: "Livre actuel",
     bookHint: "Ces paramètres sont enregistrés avec {{ name }} et suivent sa sauvegarde ou sa synchronisation.",
+    useTransactionsJournal: "Écrire les nouvelles opérations dans transactions.journal",
+    useTransactionsJournalHint: "Désactivé, les nouvelles opérations sont ajoutées au fichier journal ouvert. Les inclusions existantes et transactions.journal restent inchangés.",
     importFolders: "Dossiers d'import CSV",
     csvFolder: "Dossier des CSV dans le livre",
     rulesFolder: "Dossier des règles dans le livre",

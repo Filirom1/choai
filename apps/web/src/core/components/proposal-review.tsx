@@ -14,6 +14,7 @@ import {
   type Refusal,
 } from "~/core/journal/proposals"
 import { declaredCommodity } from "~/core/journal/store"
+import { TRANSACTIONS } from "~/core/journal/layout"
 import { allOf, anchorAfter, noneOf, tickedBy } from "~/core/journal/ticking"
 import { t } from "~/core/i18n"
 
@@ -192,6 +193,7 @@ function One(props: { proposal: Proposal }): JSX.Element {
                     rules: change().rulesPath,
                     checkpoint: change().checkpointPath,
                     count: change().catchupCount ?? change().transactionCount,
+                    path: change().path ?? TRANSACTIONS,
                   },
                 )}</span>}
               </Show>

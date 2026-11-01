@@ -282,7 +282,7 @@ export const en = {
     willCatchup: "{{ count }} newly detected transactions will be marked as imported without being added to the journal.",
     proposeCatchup: "Propose checkpoint only",
     syncNote: "Testing changes no files. Accepting updates this device's book only; use the normal sync action to send it to Git, Drive, or the linked folder.",
-    review: "CSV {{ csv }} · rules {{ rules }} · {{ count }} transactions to transactions.journal · replace {{ checkpoint }}",
+    review: "CSV {{ csv }} · rules {{ rules }} · {{ count }} transactions to {{ path }} · replace {{ checkpoint }}",
     reviewCatchup: "CSV {{ csv }} · rules {{ rules }} · catch up {{ count }} rows without adding transactions · replace {{ checkpoint }}",
   },
   statement: {
@@ -353,6 +353,8 @@ export const en = {
     application: "Application",
     book: "Current book",
     bookHint: "Settings are saved with {{ name }} and follow its backup or sync.",
+    useTransactionsJournal: "Write new transactions to transactions.journal",
+    useTransactionsJournalHint: "When off, new transactions go into the journal file currently open. Existing includes and transactions.journal remain unchanged.",
     importFolders: "CSV import folders",
     csvFolder: "CSV folder in the book",
     rulesFolder: "Rules folder in the book",

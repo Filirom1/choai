@@ -3,8 +3,7 @@ import { For, Show, createEffect, createMemo, createSignal, type JSX } from "sol
 import { Button } from "~/core/components/ui/button"
 import { TroubleNote } from "~/core/components/trouble-note"
 import { dock } from "~/core/dock"
-import { journal } from "~/core/journal/store"
-import { TRANSACTIONS } from "~/core/journal/layout"
+import { journal, transactionFileFor } from "~/core/journal/store"
 import { bookSettings } from "~/core/journal/book-settings"
 import { addressOfSourceFile } from "~/core/address/address"
 import { useMoves } from "~/core/address/moves"
@@ -35,6 +34,10 @@ export function CsvImportPanel(): JSX.Element {
   const [tab, setTab] = createSignal<"transactions" | "journal">("transactions")
   const [catchup, setCatchup] = createSignal(false)
   const open = () => getOrUndefined(journal())
+  const transactionDestination = () => {
+    const current = open()
+    return current === undefined ? "" : transactionFileFor(current.source)
+  }
   const settings = () => {
     const result = bookSettings()
     return result.ok ? result.value.imports : { csvFolder: "", rulesFolder: "" }
@@ -188,7 +191,7 @@ export function CsvImportPanel(): JSX.Element {
                   <For each={rulesPaths()}>{(path) => <option value={path}>{path}</option>}</For>
                 </select>
               </label>
-              <p class="text-xs text-muted-foreground">{t("csvImport.destination", { path: TRANSACTIONS })}</p>
+              <p class="text-xs text-muted-foreground">{t("csvImport.destination", { path: transactionDestination() })}</p>
               <div class="flex flex-wrap gap-2">
                 <Button size="sm" disabled={working()} onClick={() => void test()}>{working() ? t("csvImport.testing") : t("csvImport.test")}</Button>
                 <Button size="sm" variant="outline" onClick={() => {

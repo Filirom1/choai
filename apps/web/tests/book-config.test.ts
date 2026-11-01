@@ -7,6 +7,7 @@ const config = {
   documents: { tag: "receipt", folder: "papers/receipts" },
   reports: [report],
   invert: true,
+  useTransactionsJournal: true,
   imports: { csvFolder: "imports/csv", rulesFolder: "imports/rules" },
   accountSort: "alphabetical" as const,
   entryDisplay: {
@@ -41,10 +42,19 @@ describe("the configuration that travels with a book", () => {
       value: {
         ...legacy,
         invert: false,
+        useTransactionsJournal: true,
         imports: DEFAULT_BOOK_CONFIG.imports,
         accountSort: "chart",
         entryDisplay: DEFAULT_BOOK_CONFIG.entryDisplay,
       },
+    })
+  })
+
+  test("lets a book disable the separate transactions journal", () => {
+    const disabled = { ...config, useTransactionsJournal: false }
+    expect(bookConfigFromFiles({ [BOOK_CONFIG_PATH]: textOfBookConfig(disabled) })).toEqual({
+      ok: true,
+      value: disabled,
     })
   })
 
@@ -77,6 +87,11 @@ describe("the configuration that travels with a book", () => {
 
   test("refuses invalid entry display settings", () => {
     const files = { [BOOK_CONFIG_PATH]: JSON.stringify({ ...config, entryDisplay: { ...config.entryDisplay, status: "yes" } }) }
+    expect(bookConfigFromFiles(files)).toEqual({ ok: false, error: { kind: "invalid-shape" } })
+  })
+
+  test("refuses an invalid transactions journal setting", () => {
+    const files = { [BOOK_CONFIG_PATH]: JSON.stringify({ ...config, useTransactionsJournal: "no" }) }
     expect(bookConfigFromFiles(files)).toEqual({ ok: false, error: { kind: "invalid-shape" } })
   })
 })
