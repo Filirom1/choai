@@ -381,6 +381,7 @@ export const ja: Dictionary = {
     close: "パネルを閉じる",
     hide: "閉じる",
     docs: "choai について",
+    hledgerManual: "hledger マニュアル (v1.52)",
   },
   settings: {
     ...en.settings,

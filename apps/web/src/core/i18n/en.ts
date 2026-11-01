@@ -348,6 +348,7 @@ export const en = {
     close: "Close the panel",
     hide: "Close",
     docs: "About choai",
+    hledgerManual: "hledger manual (v1.52)",
   },
   settings: {
     application: "Application",

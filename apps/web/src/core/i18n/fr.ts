@@ -221,6 +221,7 @@ const incompleteFr: Dictionary = {
     close: "Fermer le panneau",
     hide: "Fermer",
     docs: "À propos de choai",
+    hledgerManual: "Manuel hledger (v1.52)",
   },
   local: {
     discard: "Abandonner les modifications et repartir du disque",

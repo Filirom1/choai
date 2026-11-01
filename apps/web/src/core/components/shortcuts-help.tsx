@@ -28,6 +28,7 @@ const DOCS: Readonly<Record<Locale, string>> = {
   ja: "https://choai.dev/ja/",
   fr: "https://choai.dev/fr/",
 }
+const HLEDGER_MANUAL = "https://hledger.org/1.52/hledger.html"
 
 export function ShortcutsHelp(): JSX.Element {
   const [open, setOpen] = createSignal(false)
@@ -71,22 +72,32 @@ export function ShortcutsHelp(): JSX.Element {
               )}
             </For>
           </dl>
-          <div class="mt-3 flex items-baseline justify-between gap-2 border-t border-border pt-2">
-            <A
-              href="/licenses#work"
-              onClick={() => setOpen(false)}
-              class="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-            >
-              {t("licenses.title")}
-            </A>
+          <div class="mt-3 flex flex-col gap-2 border-t border-border pt-2">
             <a
-              href={DOCS[locale()]}
+              href={HLEDGER_MANUAL}
               target="_blank"
               rel="noreferrer"
               class="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
             >
-              {t("shortcuts.docs")} ↗
+              {t("shortcuts.hledgerManual")} ↗
             </a>
+            <div class="flex items-baseline justify-between gap-2">
+              <A
+                href="/licenses#work"
+                onClick={() => setOpen(false)}
+                class="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+              >
+                {t("licenses.title")}
+              </A>
+              <a
+                href={DOCS[locale()]}
+                target="_blank"
+                rel="noreferrer"
+                class="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+              >
+                {t("shortcuts.docs")} ↗
+              </a>
+            </div>
           </div>
         </div>
       </Show>
