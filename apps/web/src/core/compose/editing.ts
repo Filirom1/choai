@@ -9,7 +9,13 @@ import type { DraftEdit } from "./draft"
 import { asText, applySurfaceEdit, toForm, toText, type Surface } from "./surface"
 import { dock } from "~/core/dock"
 import { documents } from "~/core/journal/book-settings"
-import { documentPathOn, type DocumentSelection } from "~/core/journal/documents"
+import {
+  documentPathOn,
+  documentPathWithName,
+  documentPathsInFiles,
+  safeDocumentName,
+  type DocumentSelection,
+} from "~/core/journal/documents"
 
 /**
  * Editing an entry that is already written.
@@ -29,15 +35,23 @@ const [shown, setShown] = createSignal<Surface>(asText(""))
 const [trouble, setTrouble] = createSignal<Option<Trouble>>(None)
 const [saving, setSaving] = createSignal(false)
 const [documentPath, setDocumentPath] = createSignal<string | undefined>(undefined)
+const [documentName, setDocumentName] = createSignal<string | undefined>(undefined)
 const [originalDocumentPath, setOriginalDocumentPath] = createSignal<string | undefined>(undefined)
 const [documentFile, setDocumentFile] = createSignal<File | undefined>(undefined)
 const [documentRemoved, setDocumentRemoved] = createSignal(false)
 
 export const editingDocumentPath: Accessor<string | undefined> = () => documentRemoved() ? undefined : documentPath()
 export const editingDocumentFile: Accessor<File | undefined> = documentFile
+export const editingDocumentName: Accessor<string | undefined> = documentName
+export const editingDocumentRenameValid: Accessor<boolean> = () =>
+  documentName() === undefined || safeDocumentName(documentName() ?? "")
+export const renameEditingDocument = (name: string): void => {
+  setDocumentName(name)
+}
 export const chooseEditingDocument = (selection: DocumentSelection | undefined): void => {
   setDocumentFile(selection?.kind === "file" ? selection.file : undefined)
   setDocumentPath(selection?.kind === "existing" ? selection.path : undefined)
+  setDocumentName(undefined)
   setDocumentRemoved(selection === undefined && originalDocumentPath() !== undefined)
 }
 
@@ -68,6 +82,7 @@ export const startEditingEntry = (transaction: Transaction): void => {
   setShown(toForm(asText(lines), declaredCommodity()))
   const path = documentPathOn(transaction.ttags, documents().tag)
   setDocumentPath(path)
+  setDocumentName(undefined)
   setOriginalDocumentPath(path)
   setDocumentFile(undefined)
   setDocumentRemoved(false)
@@ -90,6 +105,7 @@ export const startEditingEntry = (transaction: Transaction): void => {
 export const stopEditingEntry = (): void => {
   setWhere(undefined)
   setDocumentPath(undefined)
+  setDocumentName(undefined)
   setOriginalDocumentPath(undefined)
   setDocumentFile(undefined)
   setDocumentRemoved(false)
@@ -125,16 +141,32 @@ export const showEditAsForm = (): void => {
 export const saveEntry = async (written: string): Promise<boolean> => {
   const span = where()
   if (span === undefined) return false
+  if (!editingDocumentRenameValid()) return false
 
   setSaving(true)
   setTrouble(None)
   const removingEntry = written.trim() === ""
+  const path = documentPath()
+  const name = documentName()
+  const originalPath = originalDocumentPath()
+  const renamedPath = !removingEntry && !documentRemoved() && documentFile() === undefined && path !== undefined && name !== undefined
+    ? documentPathWithName(path, name)
+    : undefined
+  const pathInText = documentPathsInFiles({ [span.path]: written }, documents().tag)[0]
+  const rename =
+    renamedPath !== undefined && renamedPath !== path && path !== undefined
+      ? { from: path, to: renamedPath }
+      : !removingEntry && !documentRemoved() && documentFile() === undefined &&
+          originalPath !== undefined && pathInText !== undefined && pathInText !== originalPath
+        ? { from: originalPath, to: pathInText }
+        : undefined
   const result = await commitEntry(
     span,
     written,
     removingEntry ? undefined : documentFile(),
-    removingEntry ? undefined : documentPath(),
+    removingEntry || rename !== undefined ? undefined : path,
     !removingEntry && documentRemoved(),
+    rename,
   )
   setSaving(false)
 

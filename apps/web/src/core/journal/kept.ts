@@ -44,6 +44,7 @@ interface AttachmentRow {
   readonly path: string
   readonly type: string
   readonly size: number
+  readonly renamedFrom?: string
   readonly blob?: Blob
   readonly updatedAt: number
 }
@@ -124,7 +125,12 @@ export const bookWithFiles = async (id: string): Promise<KeptBook | undefined> =
   return {
     ...normalizedBook(card.result as PersistedBook),
     files: Object.fromEntries(rowsOf(files).flatMap((file) => (file.text === undefined ? [] : [[file.path, file.text]]))),
-    attachments: rowsOf(attachments).map(({ path, type, size }) => ({ path, type, size })),
+    attachments: rowsOf(attachments).map(({ path, type, size, renamedFrom }) => ({
+      path,
+      type,
+      size,
+      ...(renamedFrom === undefined ? {} : { renamedFrom }),
+    })),
   }
 }
 

@@ -13,7 +13,12 @@ import { t } from "~/core/i18n"
 import { atTheJournal } from "~/core/hledger/turn"
 import { excludingCompanion, companionsIn, companionsAcross } from "~/core/journal/companions"
 import { bookConfigFromFiles, documentSettingsFromFiles } from "~/core/journal/book-config"
-import { documentPathsInFiles, safeDocumentPath } from "~/core/journal/documents"
+import {
+  documentPathsInFiles,
+  renameDocumentReferences,
+  safeDocumentPath,
+} from "~/core/journal/documents"
+import { replaceAt, textAt, type Span } from "~/core/journal/lines"
 import { hledgerLatestPaths, isHiddenPath, isHledgerLatestPath } from "~/core/journal/hidden"
 import { demoJournal } from "./demo"
 import { MAIN, TRANSACTIONS, excluding, includedBy, including, laidOut } from "./layout"
@@ -45,6 +50,7 @@ export interface Attachment {
   readonly path: string
   readonly type: string
   readonly size: number
+  readonly renamedFrom?: string
 }
 
 export interface Source {
@@ -647,6 +653,93 @@ export const rewriteFileWithDocument = async (
   if (current === undefined) return Err({ kind: "no-journal" })
   if (current.source.files[path] === undefined) return Err({ kind: "file-missing", path })
   return keepDocument(current, { ...current.source, files: { ...current.source.files, [path]: text } }, file, documentPath)
+}
+
+export const rewriteFileWithRenamedDocument = async (
+  span: Span,
+  was: string,
+  written: string,
+  fromPath: string,
+  toPath: string,
+  tagName: string,
+): Promise<Result<OpenJournal, Trouble>> => {
+  const selected = getOrUndefined(opened())
+  if (selected === undefined) return Err({ kind: "no-journal" })
+  const attachment = selected.source.attachments.find((one) => one.path === fromPath)
+  if (attachment === undefined) return Err({ kind: "file-missing", path: fromPath })
+  if (!safeDocumentPath(toPath)) return Err({ kind: "unsupported-file" })
+  if (toPath === fromPath) return rewriteFile(span.path, replaceAt(selected.source.files[span.path] ?? "", span, written))
+  if (selected.source.files[toPath] !== undefined || selected.source.attachments.some((one) => one.path === toPath)) {
+    return Err({ kind: "unsupported-file" })
+  }
+
+  let blob: Blob | undefined
+  try {
+    blob = await loadAttachment(selected.bookId, fromPath)
+  } catch (cause) {
+    return Err({ kind: "unreachable", detail: String(cause) })
+  }
+  if (blob === undefined) return Err({ kind: "file-missing", path: fromPath })
+
+  return atTheJournal.through(async () => {
+    const current = getOrUndefined(opened())
+    if (current === undefined) return Err({ kind: "no-journal" })
+    if (current.bookId !== selected.bookId) return Err({ kind: "missing-transaction" })
+    const file = current.source.files[span.path]
+    if (file === undefined) return Err({ kind: "file-missing", path: span.path })
+    if (textAt(file, span) !== was) return Err({ kind: "missing-transaction" })
+    if (current.source.files[toPath] !== undefined || current.source.attachments.some((one) => one.path === toPath)) {
+      return Err({ kind: "unsupported-file" })
+    }
+
+    const transactions = await everyEntry(0, [])
+    if (!transactions.ok) return transactions
+    const files = renameDocumentReferences(
+      current.source.files,
+      transactions.value,
+      tagName,
+      fromPath,
+      toPath,
+      { span, text: written },
+    )
+    if (!files.ok) {
+      return files.error.kind === "file-missing"
+        ? Err({ kind: "file-missing", path: files.error.path })
+        : Err({ kind: "unsupported-file" })
+    }
+
+    const source: Source = {
+      ...current.source,
+      files: files.value,
+      attachments: current.source.attachments.map((one) =>
+        one.path === fromPath
+          ? toPath === (one.renamedFrom ?? fromPath)
+            ? { path: toPath, type: one.type, size: blob.size }
+            : { ...one, path: toPath, size: blob.size, renamedFrom: one.renamedFrom ?? fromPath }
+          : one,
+      ),
+    }
+    const read = await openSource(source)
+    if (!read.ok) return read
+    return remember(
+      { ...current, source, summary: read.value },
+      [{ path: toPath, blob }],
+    )
+  })
+}
+
+export const acknowledgeAttachmentRename = async (bookId: string, path: string, fromPath: string): Promise<void> => {
+  const current = getOrUndefined(opened())
+  if (current === undefined || current.bookId !== bookId) return
+  const attachments = current.source.attachments.map((one) =>
+    one.path === path && one.renamedFrom === fromPath
+      ? { path: one.path, type: one.type, size: one.size }
+      : one,
+  )
+  if (attachments.every((one, index) => one === current.source.attachments[index])) return
+  const open = { ...current, source: { ...current.source, attachments } }
+  setOpened(Some(open))
+  await keepOnThisDevice(open)
 }
 
 const keepDocument = async (

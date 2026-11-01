@@ -1,5 +1,8 @@
 import type { Tag as DraftTag } from "~/core/compose/draft"
-import type { Tag as JournalTag } from "~/core/hledger/wire"
+import type { Transaction, Tag as JournalTag } from "~/core/hledger/wire"
+import { Err, Ok, type Result } from "~/core/lib/monad"
+import { replaceAt, spanOf, textAt, type Span } from "./lines"
+import { withTag } from "./tagging"
 
 export interface DocumentSettings {
   readonly tag: string
@@ -69,6 +72,9 @@ export const pathForDocument = (file: File, settings: DocumentSettings): string 
   return `${settings.folder}/${crypto.randomUUID()}.${extension ?? fallback}`
 }
 
+export const documentPathWithName = (path: string, name: string): string | undefined =>
+  safeDocumentName(name) ? `${path.slice(0, path.lastIndexOf("/") + 1)}${name.trim()}` : undefined
+
 const receiptSlug = (value: string): string =>
   value
     .normalize("NFKC")
@@ -92,4 +98,56 @@ export const pathForReceipt = (
     `${settings.folder}/${stem}${number === 1 ? "" : `-${number}`}.${extension}`
   const next = (number: number): string => used.includes(candidate(number)) ? next(number + 1) : candidate(number)
   return next(1)
+}
+
+export type RenameDocumentTrouble =
+  | { readonly kind: "file-missing"; readonly path: string }
+  | { readonly kind: "entry-unwritable" }
+
+interface EntryEdit {
+  readonly span: Span
+  readonly text: string
+}
+
+const sameSpan = (left: Span, right: Span): boolean =>
+  left.path === right.path && left.from === right.from && left.to === right.to
+
+/** Retarget every entry hledger says refers to this document, including the edited one. */
+export const renameDocumentReferences = (
+  files: Readonly<Record<string, string>>,
+  transactions: readonly Transaction[],
+  tagName: string,
+  from: string,
+  to: string,
+  edited: EntryEdit,
+): Result<Readonly<Record<string, string>>, RenameDocumentTrouble> => {
+  const spans = transactions
+    .filter((transaction) => transaction.ttags.some(([name, value]) => name === tagName && value.trim() === from))
+    .map((transaction) => spanOf(transaction.tsourcepos))
+    .reduce<readonly Span[]>(
+      (found, span) => found.some((one) => sameSpan(one, span)) ? found : [...found, span],
+      [edited.span],
+    )
+
+  const edits = spans.reduce<Result<readonly EntryEdit[], RenameDocumentTrouble>>((found, span) => {
+    if (!found.ok) return found
+    const file = files[span.path]
+    if (file === undefined) return Err({ kind: "file-missing", path: span.path })
+    const original = sameSpan(span, edited.span) ? edited.text : textAt(file, span)
+    const text = withTag(original, { on: "entry" }, tagForDocument(tagName, to))
+    return text === undefined
+      ? Err({ kind: "entry-unwritable" })
+      : Ok([...found.value, { span, text }])
+  }, Ok([]))
+
+  if (!edits.ok) return edits
+  return Ok([...edits.value]
+    .sort((left, right) => left.span.path.localeCompare(right.span.path) || right.span.from - left.span.from)
+    .reduce(
+      (current, edit) => ({
+        ...current,
+        [edit.span.path]: replaceAt(current[edit.span.path] ?? "", edit.span, edit.text),
+      }),
+      { ...files },
+    ))
 }

@@ -3,6 +3,7 @@ import { Err, Ok, Some } from "../src/core/lib/monad"
 import { captureFile, type FileSnapshot, type ResolutionSession } from "../src/core/sync/conflict"
 import type { LocalDiskFile } from "../src/core/journal/local"
 import type { DriveFile } from "../src/core/google-drive/api"
+import type { DriveAgreement } from "../src/core/google-drive/kept"
 import type { GitHubRemote } from "../src/core/journal/remote"
 import type { Agreed } from "../src/core/github/kept"
 
@@ -35,6 +36,9 @@ let driveUpdates: readonly string[] = []
 let driveTrashes: readonly string[] = []
 let driveRecoveries: readonly string[] = []
 let driveAgreements: readonly unknown[] = []
+let driveAgreementsByPath: Readonly<Record<string, DriveAgreement>> = {}
+let driveAgreementReadsEnabled = false
+let driveAcknowledgedRenames: readonly { readonly bookId: string; readonly path: string; readonly fromPath: string }[] = []
 
 let githubText = "destination\n"
 let githubTexts: Readonly<Record<string, string>> = {}
@@ -68,6 +72,9 @@ const localIdentity = async (file: File): Promise<string> => JSON.stringify([
 ])
 
 mock.module("../src/core/journal/store", () => ({
+  acknowledgeAttachmentRename: async (bookId: string, path: string, fromPath: string) => {
+    driveAcknowledgedRenames = [...driveAcknowledgedRenames, { bookId, path, fromPath }]
+  },
   journal: () => Some(open),
   loadAttachment: async (_bookId: string, path: string) => driveLoadedAttachments[path] ?? localBlobs[path] ?? (path === "receipt.jpg" ? githubLocalBlob : undefined),
   openBringingMissing: async (source: { readonly files: Readonly<Record<string, string>> }) => {
@@ -128,12 +135,20 @@ mock.module("../src/core/google-drive/auth", () => ({
 
 mock.module("../src/core/google-drive/kept", () => ({
   agreementOf: (path: string, file: DriveFile, baseText: string) => ({ path, fileId: file.id, md5Checksum: file.md5Checksum, version: file.version, modifiedTime: file.modifiedTime, size: file.size, headRevisionId: file.headRevisionId, baseText }),
-  agree: async (_bookId: string, agreement: unknown) => { driveAgreements = [...driveAgreements, agreement] },
-  agreedOn: async () => undefined,
-  agreementsFor: async () => [],
+  agree: async (_bookId: string, agreement: DriveAgreement) => {
+    driveAgreements = [...driveAgreements, agreement]
+    driveAgreementsByPath = { ...driveAgreementsByPath, [agreement.path]: agreement }
+  },
+  agreedOn: async (_bookId: string, path: string) =>
+    driveAgreementReadsEnabled ? driveAgreementsByPath[path] : undefined,
+  agreementsFor: async () => driveAgreementReadsEnabled ? Object.values(driveAgreementsByPath) : [],
   changedFromAgreement: () => false,
   clientId: async () => "client",
-  forgetAgreement: async () => undefined,
+  forgetAgreement: async (_bookId: string, path: string) => {
+    driveAgreementsByPath = Object.fromEntries(
+      Object.entries(driveAgreementsByPath).filter(([candidate]) => candidate !== path),
+    )
+  },
   keepDriveRecovery: async ({ revisionId }: { revisionId: string }) => {
     driveRecoveries = [...driveRecoveries, revisionId]
     return true
@@ -142,7 +157,18 @@ mock.module("../src/core/google-drive/kept", () => ({
 
 mock.module("../src/core/google-drive/api", () => ({
   FOLDER_MIME: "application/vnd.google-apps.folder",
-  createBinary: async () => Err({ kind: "refused", status: 500 }),
+  createBinary: async (_token: string, _folderId: string, name: string, blob: Blob) => {
+    const file = driveFixture({
+      id: `binary-${name}`,
+      name,
+      mimeType: blob.type,
+      md5Checksum: `checksum-${name}`,
+      size: String(blob.size),
+    })
+    driveFiles = [...(driveFiles ?? []), file]
+    driveBlobs = { ...driveBlobs, [file.id]: blob }
+    return Ok(file)
+  },
   createFile: async () => Err({ kind: "refused", status: 500 }),
   createFolder: async () => Err({ kind: "refused", status: 500 }),
   getFileBlob: async (_token: string, id: string) => driveBlobs[id] === undefined
@@ -162,6 +188,7 @@ mock.module("../src/core/google-drive/api", () => ({
   pinRevision: async () => drivePinResult,
   trashFile: async (_token: string, id: string) => {
     driveTrashes = [...driveTrashes, id]
+    driveFiles = (driveFiles ?? []).filter((file) => file.id !== id)
     return Ok(undefined)
   },
   updateBlob: async () => Err({ kind: "refused", status: 500 }),
@@ -244,6 +271,17 @@ const driveFixture = (overrides: Partial<DriveFile> = {}): DriveFile => ({
   size: "12",
   headRevisionId: "revision-1",
   ...overrides,
+})
+
+const driveAgreementFor = (file: DriveFile, baseText: string): DriveAgreement => ({
+  path: file.name,
+  fileId: file.id,
+  md5Checksum: file.md5Checksum,
+  version: file.version,
+  modifiedTime: file.modifiedTime,
+  size: file.size,
+  headRevisionId: file.headRevisionId,
+  baseText,
 })
 
 const snapshotOfText = async (destination = "destination\n", local: string | null = "local\n"): Promise<FileSnapshot> => captureFile({
@@ -338,6 +376,9 @@ beforeEach(() => {
   driveTrashes = []
   driveRecoveries = []
   driveAgreements = []
+  driveAgreementsByPath = {}
+  driveAgreementReadsEnabled = false
+  driveAcknowledgedRenames = []
   githubText = "destination\n"
   githubTexts = {}
   githubSha = "sha-reviewed"
@@ -587,6 +628,55 @@ test("Drive trashes a reviewed remote file only for an explicit local deletion",
   open = { ...open, remote: driveRemote, local: undefined, source: { ...open.source, files: {} } }
   expect(await driveResolution.resolveResolution(driveTextSnapshot(null), { take: "local" })).toEqual({ ok: true, value: undefined })
   expect(driveTrashes).toEqual(["drive-file-1"])
+})
+
+test("Drive rename uploads and verifies the new attachment before trashing the old one", async () => {
+  const receipt = new Blob([Uint8Array.of(1, 2, 3)], { type: "application/pdf" })
+  const main = driveFixture({ id: "main-file", name: "main.journal" })
+  const previous = driveFixture({
+    id: "old-file",
+    name: "old.pdf",
+    mimeType: "application/pdf",
+    md5Checksum: "old-checksum",
+    size: String(receipt.size),
+  })
+  driveFile = previous
+  driveFiles = [main, previous]
+  driveBlobs = { "old-file": receipt }
+  localBlobs = { "new.pdf": receipt }
+  driveAgreementsByPath = {
+    "main.journal": driveAgreementFor(main, "local\n"),
+    "old.pdf": {
+      ...driveAgreementFor(previous, ""),
+      baseBinary: { size: receipt.size, fingerprint: await fingerprint(receipt) },
+    },
+  }
+  driveAgreementReadsEnabled = true
+  open = {
+    ...open,
+    remote: driveRemote,
+    local: undefined,
+    source: {
+      ...open.source,
+      files: { "main.journal": "local\n" },
+      attachments: [{
+        path: "new.pdf",
+        type: "application/pdf",
+        size: receipt.size,
+        renamedFrom: "old.pdf",
+      }],
+    },
+  }
+
+  expect(await driveResolution.push()).toEqual({ ok: true, value: { did: "pushed", files: 1 } })
+  expect(driveTrashes).toEqual(["old-file"])
+  expect(driveFiles?.some((file) => file.id === "old-file")).toBe(false)
+  expect(driveAgreementsByPath["old.pdf"]).toBeUndefined()
+  expect(driveAcknowledgedRenames).toEqual([{
+    bookId: "book-1",
+    path: "new.pdf",
+    fromPath: "old.pdf",
+  }])
 })
 
 test("GitHub revalidates SHAs, honors reviewed deletions, and keeps binaries whole-file only", async () => {

@@ -1,10 +1,11 @@
 import type { Trouble } from "~/core/hledger/wire"
-import { replaceAt, type Span } from "~/core/journal/lines"
+import { replaceAt, textAt, type Span } from "~/core/journal/lines"
 import {
   declaredCommodity,
   journal,
   rewriteFile,
   rewriteFileWithDocument,
+  rewriteFileWithRenamedDocument,
   transactionsText,
   writeTransactions,
   writeTransactionsWithDocument,
@@ -75,6 +76,7 @@ export const commitEntry = async (
   document?: File,
   existingPath?: string,
   removeDocument: boolean = false,
+  renameDocument?: { readonly from: string; readonly to: string },
 ): Promise<Result<OpenJournal, Trouble>> => {
   const open = getOrUndefined(journal())
   if (open === undefined) return Err({ kind: "no-journal" })
@@ -89,6 +91,19 @@ export const commitEntry = async (
   if (existingPath !== undefined) {
     const linked = entryWithExistingDocument(written, existingPath)
     return linked.ok ? rewriteFile(span.path, replaceAt(file, span, linked.value)) : linked
+  }
+  if (renameDocument !== undefined) {
+    const linked = entryWithExistingDocument(written, renameDocument.to)
+    return linked.ok
+      ? rewriteFileWithRenamedDocument(
+          span,
+          textAt(file, span),
+          linked.value,
+          renameDocument.from,
+          renameDocument.to,
+          documents().tag,
+        )
+      : linked
   }
   const adjusted = removeDocument ? withoutTag(written, { on: "entry" }, documents().tag) ?? written : written
   return rewriteFile(span.path, replaceAt(file, span, adjusted))

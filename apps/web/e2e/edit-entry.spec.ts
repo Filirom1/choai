@@ -65,6 +65,68 @@ test("saving gives the panel back", async ({ page }) => {
   expect(after.ok && after.value.transactions).toBe(9)
 })
 
+test("renaming an attached file updates every linked entry", async ({ page }) => {
+  await page.goto("/")
+  await page.evaluate(() => window.choai.ready)
+  await page.locator('input[type="file"]').first().setInputFiles([
+    {
+      name: "transactions.journal",
+      mimeType: "text/plain",
+      buffer: Buffer.from([
+        "2026-10-01 First  ; evidence:old.pdf",
+        "    assets:cash  $1.00",
+        "    income:opening",
+        "",
+        "2026-10-02 Second  ; evidence:old.pdf",
+        "    assets:cash  $2.00",
+        "    income:opening",
+        "",
+      ].join("\n")),
+    },
+    { name: "old.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\n%%EOF") },
+  ])
+  await expect.poll(async () => {
+    const summary = await page.evaluate(() => window.choai.journal.summary({}))
+    return summary.ok ? summary.value.transactions : 0
+  }).toBe(2)
+
+  await page.getByRole("button").filter({ hasText: "First" }).first().click()
+  await page.getByRole("button", { name: "Manage attachment" }).click()
+  await expect(page.getByText("Add or replace a file")).toBeVisible()
+  await expect(page.getByText("Actions for the attached file")).toBeVisible()
+  await page.getByRole("button", { name: "Rename", exact: true }).click()
+  const rename = page.getByRole("textbox", { name: "File name" })
+  await expect(rename).toHaveValue("old.pdf")
+  await rename.fill("new.pdf")
+  await page.getByRole("button", { name: "Save", exact: true }).click()
+
+  await expect(theEditor(page)).toBeHidden()
+  const journal = await page.evaluate(() => window.choai.journal.text({ path: "transactions.journal" }))
+  expect(journal.ok ? journal.value.text : "").toContain("evidence:new.pdf")
+  expect(journal.ok ? journal.value.text : "").not.toContain("evidence:old.pdf")
+  expect(journal.ok ? journal.value.text.match(/evidence:new\.pdf/g) : []).toHaveLength(2)
+
+  await page.getByRole("button").filter({ hasText: "First" }).first().click()
+  await expect(page.getByRole("link", { name: "new.pdf" })).toBeVisible()
+
+  await page.getByRole("button", { name: "Adjust as text", exact: true }).click()
+  const entryText = page.getByRole("textbox", { name: "What gets written" })
+  await entryText.fill(
+    (await entryText.evaluate((element) => (element as HTMLElement).innerText))
+      .replace("evidence:new.pdf", "evidence:renamed-by-tag.pdf"),
+  )
+  await page.getByRole("button", { name: "Save", exact: true }).click()
+
+  await expect(theEditor(page)).toBeHidden()
+  const retaggedJournal = await page.evaluate(() => window.choai.journal.text({ path: "transactions.journal" }))
+  expect(retaggedJournal.ok ? retaggedJournal.value.text : "").toContain("evidence:renamed-by-tag.pdf")
+  expect(retaggedJournal.ok ? retaggedJournal.value.text : "").not.toContain("evidence:new.pdf")
+  expect(retaggedJournal.ok ? retaggedJournal.value.text.match(/evidence:renamed-by-tag\.pdf/g) : []).toHaveLength(2)
+
+  await page.getByRole("button").filter({ hasText: "First" }).first().click()
+  await expect(page.getByRole("link", { name: "renamed-by-tag.pdf" })).toBeVisible()
+})
+
 test("deleting gives the panel back, and the entry is gone from the list", async ({ page }) => {
   await openTheDemo(page)
   await anEntry(page).click()

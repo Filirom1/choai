@@ -1,5 +1,5 @@
 import { Err, Ok, getOrUndefined, type Result } from "~/core/lib/monad"
-import { journal, loadAttachment, openBringingMissing, registerAttachmentLoader, removeAttachment, removeFile, replaceAttachment, restoreFile, rewriteFile, type Attachment, type OpenJournal } from "~/core/journal/store"
+import { acknowledgeAttachmentRename, journal, loadAttachment, openBringingMissing, registerAttachmentLoader, removeAttachment, removeFile, replaceAttachment, restoreFile, rewriteFile, type Attachment, type OpenJournal } from "~/core/journal/store"
 import { BOOK_CONFIG_PATH, documentSettingsFromFiles } from "~/core/journal/book-config"
 import { documentPathsInFiles } from "~/core/journal/documents"
 import { attachmentOf, putAttachments } from "~/core/journal/kept"
@@ -377,8 +377,16 @@ export const push = async (): Promise<Result<Outcome, Snag>> => {
 
   const attachments = await pushAttachments(token, remote, open, tree.value)
   if (!attachments.ok) return attachments
-  if (changes.length === 0 && attachments.value.length === 0 && !repaired.value) return Ok({ did: "nothing" })
-  const written: string[] = repaired.value ? [BOOK_CONFIG_PATH, ...attachments.value] : [...attachments.value]
+  const renamed = await pushRenamedAttachments(token, remote, open)
+  if (!renamed.ok) return renamed
+  if (changes.length === 0 && attachments.value.length === 0 && renamed.value.length === 0 && !repaired.value) {
+    return Ok({ did: "nothing" })
+  }
+  const written: string[] = [...new Set([
+    ...(repaired.value ? [BOOK_CONFIG_PATH] : []),
+    ...attachments.value,
+    ...renamed.value,
+  ])]
   for (const item of prepared.flatMap((result) => result.ok ? [result.value] : [])) {
     const saved = item.current === undefined
       ? await createAtPath(token, remote.folderId, item.change.path, item.change.after)
@@ -388,6 +396,56 @@ export const push = async (): Promise<Result<Outcome, Snag>> => {
     written.push(item.change.path)
   }
   return Ok({ did: "pushed", files: written.length })
+}
+
+const pushRenamedAttachments = async (
+  token: string,
+  remote: GoogleDriveRemote,
+  open: OpenJournal,
+): Promise<Result<readonly string[], Snag>> => {
+  const renames = open.source.attachments.flatMap((attachment) =>
+    attachment.renamedFrom === undefined ? [] : [{ attachment, fromPath: attachment.renamedFrom }],
+  )
+  if (renames.length === 0) return Ok([])
+  const tree = await filesIn(token, remote)
+  if (!tree.ok) return Err(tree.error)
+
+  for (const { attachment, fromPath } of renames) {
+    const blob = await loadAttachment(open.bookId, attachment.path)
+    if (blob === undefined) return Err({ at: "conflict", path: attachment.path })
+    const destination = tree.value.find((item) => item.path === attachment.path)
+    if (destination === undefined) return Err({ at: "conflict", path: attachment.path })
+    const destinationBlob = await getFileBlob(token, destination.file.id)
+    if (!destinationBlob.ok) return Err({ at: "drive", failure: destinationBlob.error })
+    if (!(await sameBytes(blob, destinationBlob.value))) return Err({ at: "conflict", path: attachment.path })
+
+    const version = await binaryVersion(blob)
+    if (!version.ok || version.value.content?.kind !== "binary") {
+      return Err({ at: "drive", failure: version.ok ? { kind: "refused", status: 0 } : version.error })
+    }
+    await agree(open.bookId, {
+      ...agreementOf(attachment.path, destination.file, ""),
+      baseBinary: { size: version.value.content.size, fingerprint: version.value.content.fingerprint ?? "" },
+    })
+
+    const previous = tree.value.find((item) => item.path === fromPath)
+    if (previous !== undefined) {
+      if (previous.file.id === destination.file.id) return Err({ at: "conflict", path: fromPath })
+      const agreement = await agreedOn(open.bookId, fromPath)
+      if (agreement === undefined || changedFromAgreement(previous.file, agreement)) {
+        return Err({ at: "conflict", path: fromPath })
+      }
+      const latest = await getFileMetadata(token, previous.file.id)
+      if (!latest.ok) return Err({ at: "drive", failure: latest.error })
+      if (changedFromAgreement(latest.value, agreement)) return Err({ at: "conflict", path: fromPath })
+      const trashed = await trashFile(token, latest.value.id)
+      if (!trashed.ok) return Err({ at: "drive", failure: trashed.error })
+    }
+
+    await forgetAgreement(open.bookId, fromPath)
+    await acknowledgeAttachmentRename(open.bookId, attachment.path, fromPath)
+  }
+  return Ok(renames.map(({ attachment }) => attachment.path))
 }
 
 /** Bring forward a settings file Drive placed under the folder from the old root-path calculation. */

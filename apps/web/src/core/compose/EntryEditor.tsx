@@ -12,8 +12,11 @@ import {
   editEntryDraft,
   editing,
   editingDocumentFile,
+  editingDocumentName,
   editingDocumentPath,
+  editingDocumentRenameValid,
   chooseEditingDocument,
+  renameEditingDocument,
   editingShown,
   entrySaving,
   entryTrouble,
@@ -67,6 +70,8 @@ export function EntryEditor(): JSX.Element {
           <DocumentField
             path={editingDocumentPath()}
             file={editingDocumentFile()}
+            renameName={editingDocumentName()}
+            onRename={renameEditingDocument}
             disabled={entrySaving()}
             onSelect={chooseEditingDocument}
           />
@@ -84,7 +89,7 @@ export function EntryEditor(): JSX.Element {
             <Button variant="ghost" size="sm" class="ml-auto" disabled={entrySaving()} onClick={stopEditingEntry}>
               {t("edit.cancel")}
             </Button>
-            <Button size="sm" disabled={entrySaving()} onClick={() => void saveEntry(currentText())}>
+            <Button size="sm" disabled={entrySaving() || !editingDocumentRenameValid()} onClick={() => void saveEntry(currentText())}>
               {t("edit.save")}
             </Button>
           </div>

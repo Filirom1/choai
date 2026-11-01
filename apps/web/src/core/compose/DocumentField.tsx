@@ -16,6 +16,8 @@ import { t } from "~/core/i18n"
 export function DocumentField(props: {
   readonly path: string | undefined
   readonly file: File | undefined
+  readonly renameName?: string
+  readonly onRename?: (name: string) => void
   readonly disabled?: boolean
   readonly onSelect: (selection: DocumentSelection | undefined) => void
   readonly onRecognisedText?: (text: readonly string[]) => void
@@ -23,6 +25,8 @@ export function DocumentField(props: {
   let picker: HTMLInputElement | undefined
   let camera: HTMLInputElement | undefined
   const [choosingExisting, setChoosingExisting] = createSignal(false)
+  const [managingDocument, setManagingDocument] = createSignal(false)
+  const [renamingDocument, setRenamingDocument] = createSignal(false)
   const [search, setSearch] = createSignal("")
   const [visibleCount, setVisibleCount] = createSignal(20)
   const [recognition, setRecognition] = createSignal<Recognition>({ kind: "idle" })
@@ -33,6 +37,7 @@ export function DocumentField(props: {
   }
   const existingDocument = (path: string) =>
     getOrUndefined(journal())?.source.attachments.find((attachment) => attachment.path === path)
+  const hasSelectedDocument = (): boolean => props.file !== undefined || props.path !== undefined
   const canReadSelectedDocument = (): boolean => {
     if (props.file !== undefined) return isOcrCompatible(props.file.type, props.file.name)
     if (props.path === undefined) return false
@@ -59,6 +64,8 @@ export function DocumentField(props: {
     setRecognition({ kind: "idle" })
     props.onRecognisedText?.([])
     props.onSelect(selection)
+    setManagingDocument(false)
+    setRenamingDocument(false)
     if (selection?.kind === "file" && isOcrCompatible(selection.file.type, selection.file.name)) {
       void readFileText(selection.file)
     }
@@ -140,7 +147,11 @@ export function DocumentField(props: {
         </div>
       </div>
       <Show when={!props.file && props.path}>
-        {(path) => <DocumentLink path={path()} />}
+        {(path) => (
+          <div class="flex flex-col gap-2">
+            <DocumentLink path={path()} />
+          </div>
+        )}
       </Show>
       <Show when={props.file}>
         {(file) => (
@@ -187,34 +198,101 @@ export function DocumentField(props: {
           if (file !== undefined) void compactImage(file).then((compact) => select({ kind: "file", file: compact }))
         }}
       />
-      <div class="flex flex-wrap gap-2">
-        <Button size="sm" disabled={props.disabled} onClick={() => picker?.click()}>
-          {props.path || props.file ? t("compose.replaceDocument") : t("compose.chooseDocument")}
+      <Show when={!hasSelectedDocument() || managingDocument()}>
+        <div class="flex flex-col gap-3">
+          <div class="flex flex-col gap-2 rounded-md border border-border p-2">
+            <p class="text-xs font-medium">{t("compose.documentSources")}</p>
+            <div class="flex flex-wrap gap-2">
+              <Button size="sm" disabled={props.disabled} onClick={() => picker?.click()}>
+                {hasSelectedDocument() ? t("compose.replaceDocument") : t("compose.chooseDocument")}
+              </Button>
+              <Button variant="outline" size="sm" disabled={props.disabled} onClick={() => camera?.click()}>
+                {t("compose.takePhoto")}
+              </Button>
+              <Show when={existingDocuments().length > 0}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={props.disabled}
+                  onClick={() => setChoosingExisting((shown) => !shown)}
+                >
+                  {t("compose.chooseExistingDocument")}
+                </Button>
+              </Show>
+            </div>
+          </div>
+          <Show when={hasSelectedDocument()}>
+            <div class="flex flex-col gap-2 rounded-md border border-border p-2">
+              <p class="text-xs font-medium">{t("compose.documentActions")}</p>
+              <div class="flex flex-wrap gap-2">
+                <Show when={canReadSelectedDocument()}>
+                  <Button variant="outline" size="sm" disabled={props.disabled || recognition().kind === "reading"} onClick={readSelectedText}>
+                    {t("compose.readText")}
+                  </Button>
+                </Show>
+                <Show when={props.onRename !== undefined && props.path !== undefined}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={props.disabled}
+                    onClick={() => setRenamingDocument((shown) => !shown)}
+                  >
+                    {renamingDocument() ? t("compose.cancelRenameDocument") : t("compose.renameDocument")}
+                  </Button>
+                </Show>
+                <Button variant="ghost" size="sm" disabled={props.disabled} onClick={() => select(undefined)}>
+                  {t("compose.removeDocument")}
+                </Button>
+              </div>
+            </div>
+          </Show>
+          <Show when={renamingDocument() && props.path !== undefined && props.onRename !== undefined}>
+            <div class="flex flex-col gap-1">
+              <label class="flex flex-col gap-1 text-xs">
+                {t("compose.documentName")}
+                <TextField>
+                  <TextFieldInput
+                    type="text"
+                    value={props.renameName ?? nameOf(props.path ?? "")}
+                    disabled={props.disabled}
+                    onInput={(event) => props.onRename?.(event.currentTarget.value)}
+                  />
+                </TextField>
+              </label>
+              <p class="text-xs text-muted-foreground">{t("compose.renameDocumentHint")}</p>
+              <Show when={props.renameName !== undefined && !safeDocumentName(props.renameName)}>
+                <p role="alert" class="text-xs text-destructive">{t("compose.documentNameInvalid")}</p>
+              </Show>
+            </div>
+          </Show>
+          <Show when={hasSelectedDocument()}>
+            <Button
+              variant="ghost"
+              size="sm"
+              class="self-start"
+              disabled={props.disabled}
+              onClick={() => {
+                setManagingDocument(false)
+                setRenamingDocument(false)
+                setChoosingExisting(false)
+              }}
+            >
+              {t("compose.finishDocumentActions")}
+            </Button>
+          </Show>
+        </div>
+      </Show>
+      <Show when={hasSelectedDocument() && !managingDocument()}>
+        <Button
+          variant="outline"
+          size="sm"
+          class="self-start"
+          disabled={props.disabled}
+          onClick={() => setManagingDocument(true)}
+        >
+          {t("compose.manageDocument")}
         </Button>
-        <Button variant="outline" size="sm" disabled={props.disabled} onClick={() => camera?.click()}>
-          {t("compose.takePhoto")}
-        </Button>
-        <Show when={canReadSelectedDocument()}>
-          <Button variant="outline" size="sm" disabled={props.disabled || recognition().kind === "reading"} onClick={readSelectedText}>
-            {t("compose.readText")}
-          </Button>
-        </Show>
-        <Show when={existingDocuments().length > 0}>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={props.disabled}
-            onClick={() => setChoosingExisting((shown) => !shown)}
-          >
-            {t("compose.chooseExistingDocument")}
-          </Button>
-        </Show>
-        <Show when={props.path || props.file}>
-          <Button variant="ghost" size="sm" disabled={props.disabled} onClick={() => select(undefined)}>
-            {t("compose.removeDocument")}
-          </Button>
-        </Show>
-      </div>
+      </Show>
       <Show when={recognition().kind !== "idle"}>
         <p class="text-xs text-muted-foreground" aria-live="polite">
           {recognitionMessage(recognition())}
@@ -303,6 +381,8 @@ const recognitionMessage = (recognition: Recognition): string => {
 
 const searchKey = (value: string): string =>
   value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase()
+
+const nameOf = (path: string): string => path.slice(path.lastIndexOf("/") + 1)
 
 const isOcrCompatible = (type: string, path: string): boolean =>
   type.startsWith("image/") || /\.(?:avif|bmp|gif|jpe?g|png|tiff?|webp)$/i.test(path)
