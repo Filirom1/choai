@@ -4,6 +4,8 @@ import { books, entryCandidates, journal, selectedEntries } from "~/core/journal
 import { switchEntries, switchTo } from "~/core/journal/switching"
 import { titleOf } from "~/core/journal/title"
 import { getOrUndefined } from "~/core/lib/monad"
+import type { Trouble } from "~/core/hledger/wire"
+import { TroubleNote } from "~/core/components/trouble-note"
 import { t } from "~/core/i18n"
 
 /**
@@ -22,6 +24,7 @@ import { t } from "~/core/i18n"
 export function BookSwitcher(props: { onAdd: () => void; onSwitched: (kind: "book" | "entries") => void }): JSX.Element {
   const [open, setOpen] = createSignal(false)
   const [chosenEntries, setChosenEntries] = createSignal<readonly string[]>([])
+  const [entryTrouble, setEntryTrouble] = createSignal<Trouble>()
   const current = (): string | undefined => getOrUndefined(journal())?.source.label
   const source = () => getOrUndefined(journal())?.source
 
@@ -32,9 +35,22 @@ export function BookSwitcher(props: { onAdd: () => void; onSwitched: (kind: "boo
 
   const choose = async (id: string): Promise<void> => {
     setOpen(false)
+    setEntryTrouble(undefined)
     if (id === getOrUndefined(journal())?.bookId) return
     props.onSwitched("book")
     await switchTo(id)
+  }
+
+  const chooseEntries = async (entries: readonly string[]): Promise<void> => {
+    setEntryTrouble(undefined)
+    const result = await switchEntries(entries)
+    if (result.ok) {
+      props.onSwitched("entries")
+      return
+    }
+    const currentSource = source()
+    if (currentSource !== undefined) setChosenEntries(selectedEntries(currentSource))
+    setEntryTrouble(result.error)
   }
 
   return (
@@ -97,8 +113,7 @@ export function BookSwitcher(props: { onAdd: () => void; onSwitched: (kind: "boo
                           : [...chosenEntries(), entry]
                         if (next.length === 0) return
                         setChosenEntries(next)
-                        props.onSwitched("entries")
-                        void switchEntries(next)
+                        void chooseEntries(next)
                       }}
                       class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-accent"
                     >
@@ -113,6 +128,9 @@ export function BookSwitcher(props: { onAdd: () => void; onSwitched: (kind: "boo
                 )}
               </For>
             </ul>
+            <Show when={entryTrouble()}>
+              {(trouble) => <div class="mt-2"><TroubleNote trouble={trouble()} /></div>}
+            </Show>
           </Show>
           <div class="my-1 border-t border-border" />
           <button
