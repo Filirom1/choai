@@ -105,7 +105,9 @@ export function BookSwitcher(props: { onAdd: () => void; onSwitched: (kind: "boo
                       <span aria-hidden="true" class="w-3 shrink-0 text-muted-foreground">
                         {chosenEntries().includes(entry) ? "✓" : ""}
                       </span>
-                      <span class="truncate">{titleOf(source()?.files[entry] ?? "") ?? entry}</span>
+                      <span class="truncate" classList={{ "font-semibold": chosenEntries()[0] === entry }}>
+                        {titleOf(source()?.files[entry] ?? "") ?? entry}
+                      </span>
                     </button>
                   </li>
                 )}
